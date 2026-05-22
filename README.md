@@ -16,6 +16,8 @@ It automatically transcribes voice messages and video notes (circles) in authori
 - **Smart Formatting**: Integrates Deepgram's `smart_format`, `punctuate`, and `numerals` configurations to automatically format punctuation, paragraphs, dates, numbers, and currency for readability.
 - **Multilingual Support**: Bot UI and headers support both Russian (`ru`) and English (`en`) based on `BOT_LANGUAGE`.
 - **HTML Message Splitting**: Sanitizes and splits long transcripts into chunks of under 4000 characters to prevent Telegram API errors while keeping HTML tags balanced.
+- **AI-Powered Polishing (Gemini)**: Integrates Gemini AI (`gemini-3.1-flash-lite` by default) to polish long transcripts (default >45s). It automatically corrects spelling, grammar, removes verbal fillers, and fixes misrecognized words using context while preserving the exact word order and original meaning.
+- **Granular Polishing Controls**: Flexible configuration options to turn off polishing completely or disable it specifically for video messages (video notes / circles) via `.env` toggles.
 
 ---
 
@@ -26,6 +28,7 @@ It automatically transcribes voice messages and video notes (circles) in authori
 - **Framework**: Telegraf (Telegram Bot API wrapper)
 - **Database**: SQLite (via `sqlite` and `sqlite3` packages)
 - **STT Engine**: Deepgram REST API (Nova-2 model)
+- **AI Polisher**: Google Gemini API (via `@google/genai` SDK)
 
 ---
 
@@ -36,6 +39,7 @@ It automatically transcribes voice messages and video notes (circles) in authori
 - Node.js (v18 or higher)
 - A Telegram Bot Token (obtained from [@BotFather](https://t.me/BotFather))
 - A Deepgram API Key (obtained from [console.deepgram.com](https://console.deepgram.com/))
+- A Google Gemini API Key (obtained from [Google AI Studio](https://aistudio.google.com/)) (Optional: Only if transcription polishing is enabled)
 
 ### Installation
 
@@ -73,6 +77,11 @@ Refer to [.env.example](.env.example) for details:
 - `MAX_AUDIO_DURATION_SEC`: Max allowed duration for voice messages.
 - `DB_FILE`: Path to SQLite database file.
 - `DEBUG`: Turn on detailed debug logging.
+- `GEMINI_POLISH_ENABLED`: Set to `false` to completely disable Gemini polishing (default: `true`).
+- `GEMINI_POLISH_VIDEO`: Set to `false` to disable Gemini polishing specifically for video messages (default: `true`).
+- `GEMINI_API_KEY`: Your Google Gemini API key.
+- `GEMINI_MODEL`: Gemini model name (default: `gemini-3.1-flash-lite`).
+- `POLISH_MIN_DURATION_SEC`: Minimum audio duration in seconds to trigger polishing (default: `45`).
 
 ---
 
