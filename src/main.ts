@@ -50,6 +50,30 @@ bot.on('message', async (ctx, next) => {
   const locale = getLocale();
   const chatId = ctx.chat.id;
 
+  // Handle bot being added to a chat (group / supergroup)
+  if (msg && 'new_chat_members' in msg) {
+    const newMembers = anyMsg.new_chat_members || [];
+    const botId = ctx.botInfo.id;
+    const addedBot = newMembers.some((member: any) => member.id === botId);
+    if (addedBot) {
+      if (isChatAuthorized(chatId)) {
+        try {
+          await ctx.replyWithHTML(locale.unknownCommand);
+        } catch (err) {
+          log("ERROR", `Failed to send welcome message on add: ${safeErrorForLog(err)}`);
+        }
+      } else {
+        log("WARN", `Unauthorized chat access attempt on add. Chat ID: ${chatId}`);
+        try {
+          await ctx.replyWithHTML(locale.chatNotAuthorized);
+        } catch (err) {
+          log("ERROR", `Failed to send auth warning on add: ${safeErrorForLog(err)}`);
+        }
+      }
+    }
+    return;
+  }
+
   // 1. Identify content type
   const isVoice = 'voice' in msg;
   const isVideoNote = 'video_note' in msg;
@@ -130,8 +154,10 @@ bot.on('message', async (ctx, next) => {
         return;
       }
       
-      // Friendly response for other text appeals
-      await ctx.replyWithHTML(locale.unknownCommand);
+      // Friendly response for other text appeals (only in private messages)
+      if (isPrivate) {
+        await ctx.replyWithHTML(locale.unknownCommand);
+      }
     }
     return;
   }
