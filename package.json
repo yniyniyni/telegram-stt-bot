@@ -1,0 +1,24 @@
+{
+  "name": "telegram-stt-bot",
+  "version": "1.0.0",
+  "description": "Speech-to-Text Telegram Bot using SQLite and Deepgram",
+  "main": "dist/main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "test": "tsx tests/test_stt.ts"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^5.1.7",
+    "telegraf": "^4.16.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.24",
+    "tsx": "^4.7.1",
+    "typescript": "^5.3.3"
+  }
+}
