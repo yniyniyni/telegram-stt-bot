@@ -7,6 +7,7 @@ import {
   sanitizeHTML,
   splitHTMLText,
   isChatAuthorized,
+  isUserAuthorized,
   isRateLimited,
   resetRateLimits
 } from '../src/utils.js';
@@ -300,6 +301,31 @@ async function runTests() {
   assert.strictEqual(qualifiesForPolishingLogic(50, false, true, true, 45), true);
 
   console.log("   ✅ Gemini Polishing Decision Logic passed.");
+
+  // --- Test 9: User Authorization (Private Messages / DMs) ---
+  console.log("🧪 Test 9: User Authorization (Private Messages)");
+
+  // Scenario A: Allow all users is default (or true)
+  process.env.ALLOW_ALL_USERS = "true";
+  delete process.env.ALLOWED_USERS;
+  assert.strictEqual(isUserAuthorized(11111), true);
+
+  // Scenario B: Allow all users is false, whitelist empty
+  process.env.ALLOW_ALL_USERS = "false";
+  assert.strictEqual(isUserAuthorized(11111), false);
+
+  // Scenario C: Allow all users is false, whitelist has values
+  process.env.ALLOW_ALL_USERS = "false";
+  process.env.ALLOWED_USERS = "11111, 22222";
+  assert.strictEqual(isUserAuthorized(11111), true);
+  assert.strictEqual(isUserAuthorized(22222), true);
+  assert.strictEqual(isUserAuthorized(33333), false);
+
+  // Clean up env vars
+  delete process.env.ALLOW_ALL_USERS;
+  delete process.env.ALLOWED_USERS;
+
+  console.log("   ✅ User Authorization passed.");
 
   console.log("\n🎉 All tests passed successfully!");
 }

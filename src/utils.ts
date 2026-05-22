@@ -245,6 +245,43 @@ export function isChatAuthorized(chatId: number): boolean {
   return cachedAllowedChats ? cachedAllowedChats.has(chatId) : false;
 }
 
+// Cached allowed users set for O(1) lookup
+let cachedAllowedUsers: Set<number> | null = null;
+let cachedAllowedUsersRaw: string | undefined = undefined;
+
+/**
+ * Validates if the user is authorized to use the bot in private messages (DMs) based on .env whitelist.
+ * If ALLOW_ALL_USERS is not 'false' (default true), all users are allowed.
+ * Otherwise, checks the sender's userId against the ALLOWED_USERS comma-separated list.
+ */
+export function isUserAuthorized(userId: number): boolean {
+  if (process.env.ALLOW_ALL_USERS !== 'false') {
+    return true;
+  }
+
+  const raw = process.env.ALLOWED_USERS;
+
+  if (raw === undefined || raw === "") {
+    cachedAllowedUsers = null;
+    cachedAllowedUsersRaw = raw;
+    return false;
+  }
+
+  // Re-parse only if the env value changed
+  if (raw !== cachedAllowedUsersRaw) {
+    cachedAllowedUsersRaw = raw;
+    cachedAllowedUsers = new Set(
+      raw.split(',')
+        .map(s => s.trim())
+        .filter(s => s !== '')
+        .map(s => Number(s))
+        .filter(n => !isNaN(n))
+    );
+  }
+
+  return cachedAllowedUsers ? cachedAllowedUsers.has(userId) : false;
+}
+
 /**
  * Safely truncates HTML text to a maximum character length, ensuring that tags are closed
  * and not cut in half, and preventing duplicate tag types in the open stack.

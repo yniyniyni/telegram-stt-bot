@@ -71,6 +71,8 @@ Refer to [.env.example](.env.example) for details:
 - `DEEPGRAM_SMART_FORMAT`: Toggle formatting features (default: `true`).
 - `ALLOW_ALL_CHATS`: If set to `true`, anyone can use the bot. If `false`, only chats in `ALLOWED_CHATS` are whitelisted.
 - `ALLOWED_CHATS`: Comma-separated Telegram Chat IDs (e.g. `-100123456789,987654321`).
+- `ALLOW_ALL_USERS`: If set to `true`, anyone can message the bot in private messages (DMs). If `false`, only user IDs in `ALLOWED_USERS` are allowed (default: `true`).
+- `ALLOWED_USERS`: Comma-separated Telegram User IDs allowed to use the bot in private messages (DMs).
 - `RATE_LIMIT_MAX_REQUESTS`: Max transcriptions allowed within the rolling window.
 - `RATE_LIMIT_WINDOW_SEC`: Rolling window duration in seconds.
 - `BOT_LANGUAGE`: Interface language (`ru` or `en`).
