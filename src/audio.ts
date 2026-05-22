@@ -32,6 +32,12 @@ function ensurePrivateDirectory(dir: string): void {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
+
+  try {
+    fs.chmodSync(dir, 0o700);
+  } catch (err) {
+    log("WARN", `Failed to set private permissions on directory ${dir}:`, err);
+  }
 }
 
 /**

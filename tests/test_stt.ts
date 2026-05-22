@@ -3,6 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { initDb, closeDb, getCachedTranscription, cacheTranscription, updateCachedPolishedText } from '../src/db.js';
+import { determineMessageRouting } from '../src/routing.js';
 import {
   escapeHTML,
   sanitizeHTML,
@@ -107,6 +108,7 @@ async function runTests() {
   try {
     process.env.DB_FILE = testDbFile;
     await initDb();
+    assert.strictEqual(fs.statSync(testDbDir).mode & 0o777, 0o700);
     assert.strictEqual(fs.statSync(testDbFile).mode & 0o777, 0o600);
 
     const fileUniqueId = "test_unique_id_123";
@@ -149,6 +151,11 @@ async function runTests() {
     process.env.DB_FILE = legacyDbFile;
     await initDb();
     await closeDb();
+
+    await assert.rejects(
+      () => getCachedTranscription("after_close"),
+      /Database not initialized/
+    );
   } finally {
     await closeDb();
     if (originalDbFile === undefined) {
@@ -188,47 +195,16 @@ async function runTests() {
   const botUsername = "stt_test_bot";
   const botId = 12345;
 
-  function determineTargetMessage(msg: any, isPrivateChat: boolean) {
-    const isVoice = 'voice' in msg;
-    const isVideoNote = 'video_note' in msg;
-    
-    let isDirectAppeal = false;
-    if (isPrivateChat) {
-      isDirectAppeal = true;
-    } else if ('text' in msg) {
-      const text = msg.text || '';
-      const hasMention = text.includes(`@${botUsername}`);
-      const isReplyToBot = msg.reply_to_message?.from?.id === botId;
-      if (hasMention || isReplyToBot) {
-        isDirectAppeal = true;
-      }
-    }
-
-    const repliedMsg = msg.reply_to_message;
-    const isRepliedVoice = !!(repliedMsg && 'voice' in repliedMsg);
-    const isRepliedVideoNote = !!(repliedMsg && 'video_note' in repliedMsg);
-    const shouldTranscribeReplied = isDirectAppeal && (isRepliedVoice || isRepliedVideoNote);
-
-    if (!isVoice && !isVideoNote && !isDirectAppeal) {
-      return { action: 'ignore' };
-    }
-
-    if (isDirectAppeal && !isVoice && !isVideoNote && !shouldTranscribeReplied) {
-      return { action: 'command' };
-    }
-
-    const targetMsg = shouldTranscribeReplied ? repliedMsg : msg;
-    const targetIsVoice = shouldTranscribeReplied ? isRepliedVoice : isVoice;
-
-    return {
-      action: 'transcribe',
-      targetIsVoice,
-      fileId: targetIsVoice ? targetMsg.voice.file_id : targetMsg.video_note.file_id,
-      fileUniqueId: targetIsVoice ? targetMsg.voice.file_unique_id : targetMsg.video_note.file_unique_id,
-      duration: targetIsVoice ? targetMsg.voice.duration : targetMsg.video_note.duration,
-      senderId: targetMsg.from?.id || 0
-    };
-  }
+  const determineTargetMessage = (msg: any, isPrivateChat: boolean) =>
+    determineMessageRouting(msg, { isPrivateChat, botUsername, botId });
+  const summarizeRouting = (decision: any) => ({
+    action: decision.action,
+    targetIsVoice: decision.targetIsVoice,
+    fileId: decision.fileId,
+    fileUniqueId: decision.fileUniqueId,
+    duration: decision.duration,
+    userId: decision.userId
+  });
 
   // Scenario 1: Normal text message in a group (not private chat) -> should ignore
   const res1 = determineTargetMessage({ text: "Hello guys" }, false);
@@ -239,13 +215,13 @@ async function runTests() {
     voice: { file_id: "v1", file_unique_id: "vu1", duration: 10 },
     from: { id: 999 }
   }, false);
-  assert.deepStrictEqual(res2, {
+  assert.deepStrictEqual(summarizeRouting(res2), {
     action: 'transcribe',
     targetIsVoice: true,
     fileId: "v1",
     fileUniqueId: "vu1",
     duration: 10,
-    senderId: 999
+    userId: 999
   });
 
   // Scenario 3: Mention in group, no reply -> should process as command
@@ -260,16 +236,16 @@ async function runTests() {
       from: { id: 888 }
     }
   }, false);
-  assert.deepStrictEqual(res4, {
+  assert.deepStrictEqual(summarizeRouting(res4), {
     action: 'transcribe',
     targetIsVoice: true,
     fileId: "v2",
     fileUniqueId: "vu2",
     duration: 25,
-    senderId: 888
+    userId: 888
   });
 
-  // Scenario 5: Reply to bot's message in reply to a video note -> should transcribe replied video note
+  // Scenario 5: Reply to another user's video note without mention -> should ignore
   const res5 = determineTargetMessage({
     text: "please transcribe",
     reply_to_message: {
@@ -277,10 +253,9 @@ async function runTests() {
       from: { id: 777 }
     }
   }, false);
-  // Wait, if it's reply to some other message but not bot's own message, isDirectAppeal is false
   assert.strictEqual(res5.action, 'ignore');
 
-  // Scenario 6: Reply to bot's message (by botId) in reply to a video note -> should transcribe replied video note
+  // Scenario 6: Text reply to a bot-authored video note -> should transcribe replied video note
   const res6 = determineTargetMessage({
     text: "do it",
     reply_to_message: {
@@ -288,13 +263,13 @@ async function runTests() {
       from: { id: botId } // The replied message is from the bot
     }
   }, false);
-  assert.deepStrictEqual(res6, {
+  assert.deepStrictEqual(summarizeRouting(res6), {
     action: 'transcribe',
     targetIsVoice: false,
     fileId: "vid1",
     fileUniqueId: "vidu1",
     duration: 60,
-    senderId: botId
+    userId: botId
   });
 
   console.log("   ✅ Direct Appeal & Reply Decision Logic passed.");

@@ -36,6 +36,11 @@ function ensurePrivateDirectory(dir: string): void {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     log("INFO", `Created database directory: ${dir}`);
   }
+  try {
+    fs.chmodSync(dir, 0o700);
+  } catch (err) {
+    log("WARN", `Failed to set private permissions on database directory ${dir}:`, err);
+  }
 }
 
 /**
@@ -129,7 +134,7 @@ export async function getCachedTranscription(fileUniqueId: string): Promise<Cach
     };
   } catch (err) {
     log("ERROR", `Failed to query cached transcription for ${fileUniqueId}:`, err);
-    return null;
+    throw err;
   }
 }
 

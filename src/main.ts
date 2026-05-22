@@ -6,6 +6,7 @@ import { initDb, closeDb, getCachedTranscription, cacheTranscription, updateCach
 import { downloadTelegramFile, cleanupFile } from './audio.js';
 import { transcribeFile } from './transcriber.js';
 import { polishTranscript } from './polisher.js';
+import { determineMessageRouting } from './routing.js';
 import {
   getPositiveIntegerEnv,
   isChatAuthorized,
@@ -72,6 +73,7 @@ class TranscriptionLimiter {
 }
 
 const transcriptionLimiter = new TranscriptionLimiter(MAX_CONCURRENT_TRANSCRIPTIONS);
+const polishingLimiter = new TranscriptionLimiter(MAX_CONCURRENT_TRANSCRIPTIONS);
 
 /**
  * Main message handler middleware.
@@ -107,39 +109,15 @@ bot.on('message', async (ctx, next) => {
     return;
   }
 
-  // 1. Identify content type
-  const isVoice = 'voice' in msg;
-  const isVideoNote = 'video_note' in msg;
-  
-  // Check if it's a direct appeal to the bot
-  let isDirectAppeal = false;
   const isPrivate = ctx.chat.type === 'private';
-  
-  if (isPrivate) {
-    isDirectAppeal = true;
-  } else if ('text' in msg) {
-    const text = msg.text || '';
-    const botUsername = ctx.botInfo.username;
-    
-    // Check for mention
-    const hasMention = text.includes(`@${botUsername}`);
-    
-    // Check if it's a reply to the bot's own message
-    const isReplyToBot = anyMsg.reply_to_message?.from?.id === ctx.botInfo.id;
-    
-    if (hasMention || isReplyToBot) {
-      isDirectAppeal = true;
-    }
-  }
-
-  // Check if the appeal is a reply to a voice message or video note
-  const repliedMsg = anyMsg.reply_to_message;
-  const isRepliedVoice = !!(repliedMsg && 'voice' in repliedMsg);
-  const isRepliedVideoNote = !!(repliedMsg && 'video_note' in repliedMsg);
-  const shouldTranscribeReplied = isDirectAppeal && (isRepliedVoice || isRepliedVideoNote);
+  const routing = determineMessageRouting(msg, {
+    isPrivateChat: isPrivate,
+    botUsername: ctx.botInfo.username,
+    botId: ctx.botInfo.id
+  });
 
   // If the message is not a voice message, video note, or a direct appeal, ignore it completely
-  if (!isVoice && !isVideoNote && !isDirectAppeal) {
+  if (routing.action === 'ignore') {
     return;
   }
 
@@ -147,7 +125,7 @@ bot.on('message', async (ctx, next) => {
   const senderId = msg.from?.id || 0;
   if (isPrivate && !isUserAuthorized(senderId)) {
     log("WARN", `Unauthorized user private chat access attempt. User ID: ${senderId}`);
-    if (isDirectAppeal || isVoice || isVideoNote) {
+    if (routing.isDirectAppeal || routing.isVoice || routing.isVideoNote) {
       try {
         await ctx.replyWithHTML(locale.chatNotAuthorized, { reply_to_message_id: msg.message_id } as any);
       } catch (err) {
@@ -159,7 +137,7 @@ bot.on('message', async (ctx, next) => {
 
   if (!isPrivate && !isChatAuthorized(chatId)) {
     log("WARN", `Unauthorized chat access attempt. Chat ID: ${chatId}`);
-    if (isDirectAppeal || isVoice || isVideoNote) {
+    if (routing.isDirectAppeal || routing.isVoice || routing.isVideoNote) {
       try {
         await ctx.replyWithHTML(locale.chatNotAuthorized, { reply_to_message_id: msg.message_id } as any);
       } catch (err) {
@@ -170,7 +148,7 @@ bot.on('message', async (ctx, next) => {
   }
 
   // 3. Process direct appeals (text commands/messages) that are not replies to voice/video notes
-  if (isDirectAppeal && !isVoice && !isVideoNote && !shouldTranscribeReplied) {
+  if (routing.action === 'command') {
     if ('text' in msg) {
       const text = msg.text || '';
       const botUsername = ctx.botInfo.username;
@@ -194,17 +172,19 @@ bot.on('message', async (ctx, next) => {
   }
 
   // 4. Process voice messages and video notes
-  const targetMsg = shouldTranscribeReplied ? repliedMsg! : msg;
-  const targetIsVoice = shouldTranscribeReplied ? isRepliedVoice : isVoice;
-  
-  const anyTargetMsg = targetMsg as any;
-  const fileId = targetIsVoice ? anyTargetMsg.voice.file_id : anyTargetMsg.video_note.file_id;
-  const fileUniqueId = targetIsVoice ? anyTargetMsg.voice.file_unique_id : anyTargetMsg.video_note.file_unique_id;
-  const duration = targetIsVoice ? anyTargetMsg.voice.duration : anyTargetMsg.video_note.duration;
-  const fileSize = targetIsVoice ? anyTargetMsg.voice.file_size : anyTargetMsg.video_note.file_size;
-  const userId = targetMsg.from?.id || 0;
-  const username = targetMsg.from?.username;
-  const fullName = [targetMsg.from?.first_name, targetMsg.from?.last_name].filter(Boolean).join(' ');
+  if (routing.action !== 'transcribe') {
+    return;
+  }
+  const {
+    targetIsVoice,
+    fileId,
+    fileUniqueId,
+    duration,
+    fileSize,
+    userId,
+    username,
+    fullName
+  } = routing;
 
   log("INFO", `Processing ${targetIsVoice ? 'voice' : 'video note'} from user ${userId} in chat ${chatId}. Duration: ${duration}s`);
 
@@ -242,7 +222,15 @@ bot.on('message', async (ctx, next) => {
   }
 
   // Check Database cache first
-  const cached = await getCachedTranscription(fileUniqueId);
+  let cached;
+  try {
+    cached = await getCachedTranscription(fileUniqueId);
+  } catch (err) {
+    log("ERROR", `Cache lookup failed for file ${fileUniqueId}; refusing to spend transcription quota: ${safeErrorForLog(err)}`);
+    await safeReplyWithHTML(ctx, locale.transcriptionError(safeErrorForLog(err)), msg.message_id, "cache lookup error");
+    return;
+  }
+
   if (cached !== null) {
     log("INFO", `Cache hit for file_unique_id: ${fileUniqueId}. Replying from database cache.`);
     
@@ -252,24 +240,33 @@ bot.on('message', async (ctx, next) => {
 
     // On-demand polishing if cached before we added polishing, and now it qualifies
     if (qualifiesForPolishing && !cached.polishedText) {
-      log("INFO", `File ${fileUniqueId} qualifies for polishing but only raw text was cached. Polishing on demand...`);
-      let polishStatusMsgId: number | null = null;
-      try {
-        const polishStatusMsg = await ctx.replyWithHTML(locale.polishing, { reply_to_message_id: msg.message_id } as any);
-        polishStatusMsgId = polishStatusMsg.message_id;
-        
-        const polished = await polishTranscript(cached.rawText);
-        await updateCachedPolishedText(fileUniqueId, polished);
-        textToSend = polished;
-        isPolished = true;
-      } catch (err) {
-        log("ERROR", `Failed to polish cached transcript on demand: ${safeErrorForLog(err)}`);
-      } finally {
-        if (polishStatusMsgId !== null) {
+      if (!polishingLimiter.tryAcquire()) {
+        log("WARN", `Polishing concurrency limit hit for cached transcript ${fileUniqueId}. Sending raw cached text.`);
+      } else {
+        log("INFO", `File ${fileUniqueId} qualifies for polishing but only raw text was cached. Polishing on demand...`);
+        let polishStatusMsgId: number | null = null;
+        try {
+          const polishStatusMsg = await ctx.replyWithHTML(locale.polishing, { reply_to_message_id: msg.message_id } as any);
+          polishStatusMsgId = polishStatusMsg.message_id;
+
+          const polished = await polishTranscript(cached.rawText);
+          textToSend = polished;
+          isPolished = true;
           try {
-            await ctx.telegram.deleteMessage(chatId, polishStatusMsgId);
-          } catch (delErr) {
-            log("WARN", `Failed to delete polishing status message ${polishStatusMsgId}: ${safeErrorForLog(delErr)}`);
+            await updateCachedPolishedText(fileUniqueId, polished);
+          } catch (cacheErr) {
+            log("ERROR", `Failed to cache polished transcript for ${fileUniqueId}: ${safeErrorForLog(cacheErr)}`);
+          }
+        } catch (err) {
+          log("ERROR", `Failed to polish cached transcript on demand: ${safeErrorForLog(err)}`);
+        } finally {
+          polishingLimiter.release();
+          if (polishStatusMsgId !== null) {
+            try {
+              await ctx.telegram.deleteMessage(chatId, polishStatusMsgId);
+            } catch (delErr) {
+              log("WARN", `Failed to delete polishing status message ${polishStatusMsgId}: ${safeErrorForLog(delErr)}`);
+            }
           }
         }
       }
@@ -353,11 +350,13 @@ bot.on('message', async (ctx, next) => {
       }
     }
 
-    // Cache the successful transcript in the database
-    await cacheTranscription(fileUniqueId, chatId, userId, duration, transcriptText, polishedText);
-
     // Reply with the transcription text
     const finalToSend = isPolished && polishedText ? polishedText : transcriptText;
+    try {
+      await cacheTranscription(fileUniqueId, chatId, userId, duration, transcriptText, polishedText);
+    } catch (cacheErr) {
+      log("ERROR", `Failed to cache transcript for ${fileUniqueId}; sending result anyway: ${safeErrorForLog(cacheErr)}`);
+    }
     await sendTranscriptionResult(ctx, finalToSend, targetIsVoice, isPolished, username, fullName);
 
   } catch (err) {
