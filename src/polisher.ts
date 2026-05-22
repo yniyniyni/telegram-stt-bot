@@ -1,5 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
-import { log, sanitizeHTML } from './utils.js';
+import { getPositiveIntegerEnv, log, sanitizeHTML, withTimeout } from './utils.js';
 
 let aiInstance: GoogleGenAI | null = null;
 
@@ -32,6 +32,8 @@ export async function polishTranscript(rawText: string): Promise<string> {
   }
 
   const model = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
+  const timeoutMs = getPositiveIntegerEnv('GEMINI_TIMEOUT_MS', 120_000);
+  const maxOutputTokens = getPositiveIntegerEnv('GEMINI_MAX_OUTPUT_TOKENS', 8192);
   
   const systemInstruction = 
     "You are an expert editor specializing in refining speech-to-text transcriptions.\n" +
@@ -51,20 +53,25 @@ export async function polishTranscript(rawText: string): Promise<string> {
     const aiClient = getAIClient();
     log("DEBUG", `Requesting transcript polishing via Gemini model '${model}'...`);
 
-    const response = await aiClient.models.generateContent({
-      model: model,
-      contents: userPrompt,
-      config: {
-        systemInstruction,
-        temperature: 0.2
-      }
-    });
+    const response = await withTimeout(
+      aiClient.models.generateContent({
+        model: model,
+        contents: userPrompt,
+        config: {
+          systemInstruction,
+          temperature: 0.2,
+          maxOutputTokens
+        }
+      }),
+      timeoutMs,
+      'Gemini polishing'
+    );
 
     const resultText = response.text || rawText;
     return sanitizeHTML(resultText);
   } catch (err: unknown) {
     const errMsg = err instanceof Error ? err.message : String(err);
     log("ERROR", `Failed to polish transcript using Gemini: ${errMsg}`);
-    return rawText; // Fallback to raw text if Gemini fails
+    throw err;
   }
 }

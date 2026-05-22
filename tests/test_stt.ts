@@ -130,8 +130,8 @@ async function runTests() {
   }
   console.log("   ✅ Database Caching passed.");
 
-  // --- Test 7: Gemini Polisher Fallback ---
-  console.log("🧪 Test 7: Gemini Polisher Graceful Fallback");
+  // --- Test 7: Gemini Polisher Failure Signal ---
+  console.log("🧪 Test 7: Gemini Polisher Failure Signal");
   const { polishTranscript } = await import('../src/polisher.js');
   
   // Temporarily unset keys to test fallback
@@ -141,16 +141,16 @@ async function runTests() {
   delete process.env.GOOGLE_API_KEY;
 
   const rawSample = "hello um this is raw speech like you know";
-  const result = await polishTranscript(rawSample);
-  
-  // Verify that it gracefully fell back to raw text without throwing an exception
-  assert.strictEqual(result, rawSample);
+  await assert.rejects(
+    () => polishTranscript(rawSample),
+    /GEMINI_API_KEY|GOOGLE_API_KEY/
+  );
   
   // Restore keys
   if (oldGeminiKey) process.env.GEMINI_API_KEY = oldGeminiKey;
   if (oldGoogleKey) process.env.GOOGLE_API_KEY = oldGoogleKey;
   
-  console.log("   ✅ Gemini Polisher Graceful Fallback passed.");
+  console.log("   ✅ Gemini Polisher failure signal passed.");
 
   // --- Test 6: Direct Appeal and Reply Decision Logic ---
   console.log("🧪 Test 6: Direct Appeal & Reply Decision Logic");

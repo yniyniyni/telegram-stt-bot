@@ -11,6 +11,41 @@ export function escapeHTML(str: string): string {
     .replace(/"/g, '&quot;');
 }
 
+export function getPositiveIntegerEnv(name: string, defaultValue: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") {
+    return defaultValue;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive integer, got "${raw}".`);
+  }
+
+  return parsed;
+}
+
+export function redactTelegramFileUrl(url: string): string {
+  return url.replace(/\/bot[^/]+/g, '/bot<redacted>');
+}
+
+export async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timeout: NodeJS.Timeout | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
 /**
  * Converts basic markdown formatting (headers, bold, italic, code blocks, inline code)
  * into Telegram-compatible HTML tags.

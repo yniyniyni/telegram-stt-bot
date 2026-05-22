@@ -2,12 +2,12 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import { Telegraf } from 'telegraf';
-import { message } from 'telegraf/filters';
 import { initDb, closeDb, getCachedTranscription, cacheTranscription, updateCachedPolishedText } from './db.js';
 import { downloadTelegramFile, cleanupFile } from './audio.js';
 import { transcribeFile } from './transcriber.js';
 import { polishTranscript } from './polisher.js';
 import {
+  getPositiveIntegerEnv,
   isChatAuthorized,
   isUserAuthorized,
   isRateLimited,
@@ -34,11 +34,40 @@ if (!deepgramApiKey) {
 // Initialize Telegraf Bot
 const bot = new Telegraf(botToken);
 
-// Determine max audio duration (default: 10 minutes)
-const MAX_DURATION = parseInt(process.env.MAX_AUDIO_DURATION_SEC || '600', 10);
-const POLISH_MIN_DURATION = parseInt(process.env.POLISH_MIN_DURATION_SEC || '45', 10);
-const POLISH_ENABLED = process.env.GEMINI_POLISH_ENABLED !== 'false';
+// Safety limits
+const MAX_DURATION = getPositiveIntegerEnv('MAX_AUDIO_DURATION_SEC', 600);
+const POLISH_MIN_DURATION = getPositiveIntegerEnv('POLISH_MIN_DURATION_SEC', 45);
+const MAX_FILE_BYTES = getPositiveIntegerEnv('MAX_TELEGRAM_FILE_BYTES', 50 * 1024 * 1024);
+const TELEGRAM_DOWNLOAD_TIMEOUT_MS = getPositiveIntegerEnv('TELEGRAM_DOWNLOAD_TIMEOUT_MS', 60_000);
+const MAX_CONCURRENT_TRANSCRIPTIONS = getPositiveIntegerEnv('MAX_CONCURRENT_TRANSCRIPTIONS', 2);
+const POLISH_REQUESTED = process.env.GEMINI_POLISH_ENABLED !== 'false';
+const HAS_GEMINI_KEY = !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
+const POLISH_ENABLED = POLISH_REQUESTED && HAS_GEMINI_KEY;
 const POLISH_VIDEO = process.env.GEMINI_POLISH_VIDEO !== 'false';
+
+if (POLISH_REQUESTED && !HAS_GEMINI_KEY) {
+  log("WARN", "Gemini polishing is enabled, but GEMINI_API_KEY/GOOGLE_API_KEY is missing. Polishing will be skipped.");
+}
+
+class TranscriptionLimiter {
+  private active = 0;
+
+  constructor(private readonly maxActive: number) {}
+
+  tryAcquire(): boolean {
+    if (this.active >= this.maxActive) {
+      return false;
+    }
+    this.active += 1;
+    return true;
+  }
+
+  release(): void {
+    this.active = Math.max(0, this.active - 1);
+  }
+}
+
+const transcriptionLimiter = new TranscriptionLimiter(MAX_CONCURRENT_TRANSCRIPTIONS);
 
 /**
  * Main message handler middleware.
@@ -170,6 +199,7 @@ bot.on('message', async (ctx, next) => {
   const fileId = targetIsVoice ? anyTargetMsg.voice.file_id : anyTargetMsg.video_note.file_id;
   const fileUniqueId = targetIsVoice ? anyTargetMsg.voice.file_unique_id : anyTargetMsg.video_note.file_unique_id;
   const duration = targetIsVoice ? anyTargetMsg.voice.duration : anyTargetMsg.video_note.duration;
+  const fileSize = targetIsVoice ? anyTargetMsg.voice.file_size : anyTargetMsg.video_note.file_size;
   const userId = targetMsg.from?.id || 0;
   const username = targetMsg.from?.username;
   const fullName = [targetMsg.from?.first_name, targetMsg.from?.last_name].filter(Boolean).join(' ');
@@ -195,6 +225,16 @@ bot.on('message', async (ctx, next) => {
       await ctx.replyWithHTML(locale.durationLimitExceeded(MAX_DURATION), { reply_to_message_id: msg.message_id } as any);
     } catch (err) {
       log("ERROR", `Failed to send duration limit error: ${safeErrorForLog(err)}`);
+    }
+    return;
+  }
+
+  if (typeof fileSize === 'number' && fileSize > MAX_FILE_BYTES) {
+    log("WARN", `Telegram file size ${fileSize} bytes exceeds maximum limit of ${MAX_FILE_BYTES} bytes in chat ${chatId}`);
+    try {
+      await ctx.replyWithHTML(locale.fileSizeLimitExceeded(MAX_FILE_BYTES), { reply_to_message_id: msg.message_id } as any);
+    } catch (err) {
+      log("ERROR", `Failed to send file size limit error: ${safeErrorForLog(err)}`);
     }
     return;
   }
@@ -237,6 +277,16 @@ bot.on('message', async (ctx, next) => {
     return;
   }
 
+  if (!transcriptionLimiter.tryAcquire()) {
+    log("WARN", `Transcription concurrency limit hit. Max active: ${MAX_CONCURRENT_TRANSCRIPTIONS}`);
+    try {
+      await ctx.replyWithHTML(locale.tooManyTranscriptions, { reply_to_message_id: msg.message_id } as any);
+    } catch (err) {
+      log("ERROR", `Failed to send concurrency limit message: ${safeErrorForLog(err)}`);
+    }
+    return;
+  }
+
   // Send temporary transcribing status message
   let statusMsgId: number | null = null;
   try {
@@ -252,7 +302,10 @@ bot.on('message', async (ctx, next) => {
     const fileLink = await ctx.telegram.getFileLink(fileId);
     
     // Download to local temp folder
-    localTempFile = await downloadTelegramFile(fileLink.href);
+    localTempFile = await downloadTelegramFile(fileLink.href, {
+      timeoutMs: TELEGRAM_DOWNLOAD_TIMEOUT_MS,
+      maxBytes: MAX_FILE_BYTES
+    });
 
     // Call Deepgram API for STT
     const transcriptText = await transcribeFile(localTempFile);
@@ -307,13 +360,15 @@ bot.on('message', async (ctx, next) => {
 
   } catch (err) {
     const errorMsg = safeErrorForLog(err);
-    log("ERROR", `Transcription failed for file ${fileUniqueId}:`, err);
+    log("ERROR", `Transcription failed for file ${fileUniqueId}: ${errorMsg}`);
     try {
       await ctx.replyWithHTML(locale.transcriptionError(errorMsg), { reply_to_message_id: msg.message_id } as any);
     } catch (sendErr) {
       log("ERROR", `Failed to send transcription error: ${safeErrorForLog(sendErr)}`);
     }
   } finally {
+    transcriptionLimiter.release();
+
     // 1. Delete local temp file (never keep audio files on the host after completion/failure)
     if (localTempFile) {
       cleanupFile(localTempFile);

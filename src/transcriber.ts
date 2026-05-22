@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { log } from './utils.js';
+import { getPositiveIntegerEnv, log } from './utils.js';
 
 interface DeepgramResponse {
   results?: {
@@ -23,10 +23,14 @@ export async function transcribeFile(filePath: string): Promise<string> {
     throw new Error("DEEPGRAM_API_KEY is not defined in the environment variables.");
   }
 
-  const stats = fs.statSync(filePath);
+  const timeoutMs = getPositiveIntegerEnv('DEEPGRAM_TIMEOUT_MS', 120_000);
+  const maxBytes = getPositiveIntegerEnv('MAX_TELEGRAM_FILE_BYTES', 50 * 1024 * 1024);
+  const stats = await fs.promises.stat(filePath);
+  if (stats.size > maxBytes) {
+    throw new Error(`Media file is too large for transcription (${stats.size} bytes, limit ${maxBytes} bytes)`);
+  }
   log("DEBUG", `Preparing transcription for file: ${filePath} (${stats.size} bytes)`);
 
-  const fileBuffer = fs.readFileSync(filePath);
   const ext = path.extname(filePath).toLowerCase();
 
   // Determine Mime Type
@@ -68,9 +72,12 @@ export async function transcribeFile(filePath: string): Promise<string> {
     headers: {
       'Authorization': `Token ${apiKey}`,
       'Content-Type': contentType,
+      'Content-Length': String(stats.size),
     },
-    body: fileBuffer
-  });
+    body: fs.createReadStream(filePath) as any,
+    duplex: 'half',
+    signal: AbortSignal.timeout(timeoutMs)
+  } as RequestInit & { duplex: 'half' });
 
   if (!response.ok) {
     let errText = '';

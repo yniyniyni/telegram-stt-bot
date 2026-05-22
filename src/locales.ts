@@ -14,6 +14,8 @@ export interface Locales {
   transcriptionHeaderVideoNotePolished: (username?: string, fullName?: string) => string;
   transcriptionError: (err: string) => string;
   durationLimitExceeded: (maxSec: number) => string;
+  fileSizeLimitExceeded: (maxBytes: number) => string;
+  tooManyTranscriptions: string;
   unknownCommand: string;
 }
 
@@ -54,8 +56,10 @@ const ruLocale: Locales = {
     const userLink = username ? ` (@${escapeHTML(username)})` : "";
     return `📹 <b>Видеосообщение от ${name}${userLink} (Полированное):</b>\n\n`;
   },
-  transcriptionError: (err) => `❌ Ошибка расшифровки: <code>${escapeHTML(err)}</code>`,
+  transcriptionError: () => `❌ Не удалось расшифровать сообщение. Попробуйте позже.`,
   durationLimitExceeded: (maxSec) => `⚠️ Длительность сообщения превышает лимит (${maxSec} сек.). Расшифровка отклонена.`,
+  fileSizeLimitExceeded: (maxBytes) => `⚠️ Размер файла превышает лимит (${Math.floor(maxBytes / 1024 / 1024)} МБ). Расшифровка отклонена.`,
+  tooManyTranscriptions: "⚠️ Сейчас уже обрабатывается слишком много сообщений. Попробуйте чуть позже.",
   unknownCommand: "🤖 Я умею автоматически расшифровывать голосовые сообщения и видеокружки. Просто отправьте их сюда!"
 };
 
@@ -96,8 +100,10 @@ const enLocale: Locales = {
     const userLink = username ? ` (@${escapeHTML(username)})` : "";
     return `📹 <b>Video message from ${name}${userLink} (Polished):</b>\n\n`;
   },
-  transcriptionError: (err) => `❌ Transcription error: <code>${escapeHTML(err)}</code>`,
+  transcriptionError: () => `❌ Could not transcribe the message. Please try again later.`,
   durationLimitExceeded: (maxSec) => `⚠️ Message duration exceeds the limit of ${maxSec}s. Transcription rejected.`,
+  fileSizeLimitExceeded: (maxBytes) => `⚠️ File size exceeds the limit (${Math.floor(maxBytes / 1024 / 1024)} MB). Transcription rejected.`,
+  tooManyTranscriptions: "⚠️ Too many messages are being processed right now. Please try again shortly.",
   unknownCommand: "🤖 I automatically transcribe voice messages and video notes. Just send them here!"
 };
 
