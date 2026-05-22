@@ -14,6 +14,20 @@ import {
   resetRateLimits
 } from '../src/utils.js';
 
+function captureEnv(names: string[]): Record<string, string | undefined> {
+  return Object.fromEntries(names.map((name) => [name, process.env[name]]));
+}
+
+function restoreEnv(snapshot: Record<string, string | undefined>): void {
+  for (const [name, value] of Object.entries(snapshot)) {
+    if (value === undefined) {
+      delete process.env[name];
+    } else {
+      process.env[name] = value;
+    }
+  }
+}
+
 async function runTests() {
   console.log("🚀 Starting unit tests for Telegram STT Bot...\n");
 
@@ -21,6 +35,7 @@ async function runTests() {
   console.log("🧪 Test 1: HTML Escaping and Sanitizing");
   
   assert.strictEqual(escapeHTML("hello <world> & friends"), "hello &lt;world&gt; &amp; friends");
+  assert.strictEqual(escapeHTML(`Tom's "cat"`), "Tom&#39;s &quot;cat&quot;");
   
   const untrusted = "Hello <b>world</b> <script>alert(1)</script> and <i>italic</i>";
   const sanitized = sanitizeHTML(untrusted);
@@ -60,43 +75,58 @@ async function runTests() {
 
   // --- Test 3: Chat Authorization (Fail-Closed) ---
   console.log("🧪 Test 3: Fail-Closed Chat Authorization");
-  
-  // Test scenario A: Whitelist is empty
-  delete process.env.ALLOW_ALL_CHATS;
-  delete process.env.ALLOWED_CHATS;
-  assert.strictEqual(isChatAuthorized(12345), false);
+  const chatAuthEnv = captureEnv(['ALLOW_ALL_CHATS', 'ALLOWED_CHATS']);
+  try {
+    // Test scenario A: Whitelist is empty
+    delete process.env.ALLOW_ALL_CHATS;
+    delete process.env.ALLOWED_CHATS;
+    assert.strictEqual(isChatAuthorized(12345), false);
 
-  // Test scenario B: Whitelist contains values
-  process.env.ALLOWED_CHATS = "12345, -100987654";
-  assert.strictEqual(isChatAuthorized(12345), true);
-  assert.strictEqual(isChatAuthorized(-100987654), true);
-  assert.strictEqual(isChatAuthorized(99999), false);
+    // Test scenario B: Whitelist contains values
+    process.env.ALLOWED_CHATS = "12345, -100987654";
+    assert.strictEqual(isChatAuthorized(12345), true);
+    assert.strictEqual(isChatAuthorized(-100987654), true);
+    assert.strictEqual(isChatAuthorized(99999), false);
 
-  // Test scenario C: Allow all chats
-  process.env.ALLOW_ALL_CHATS = "true";
-  assert.strictEqual(isChatAuthorized(99999), true);
-  console.log("   ✅ Fail-Closed Chat Authorization passed.");
+    // Test scenario C: Allow all chats
+    process.env.ALLOW_ALL_CHATS = "true";
+    assert.strictEqual(isChatAuthorized(99999), true);
+    console.log("   ✅ Fail-Closed Chat Authorization passed.");
+  } finally {
+    restoreEnv(chatAuthEnv);
+  }
 
   // --- Test 4: Rate Limiting ---
   console.log("🧪 Test 4: Rate Limiting");
-  delete process.env.ALLOW_ALL_CHATS;
-  process.env.RATE_LIMIT_MAX_REQUESTS = "3";
-  process.env.RATE_LIMIT_WINDOW_SEC = "10";
-  resetRateLimits();
+  const rateLimitEnv = captureEnv([
+    'ALLOW_ALL_CHATS',
+    'ALLOWED_CHATS',
+    'RATE_LIMIT_MAX_REQUESTS',
+    'RATE_LIMIT_WINDOW_SEC'
+  ]);
+  try {
+    delete process.env.ALLOW_ALL_CHATS;
+    process.env.RATE_LIMIT_MAX_REQUESTS = "3";
+    process.env.RATE_LIMIT_WINDOW_SEC = "10";
+    resetRateLimits();
 
-  // First 3 requests should succeed
-  assert.strictEqual(isRateLimited(100).limited, false);
-  assert.strictEqual(isRateLimited(100).limited, false);
-  assert.strictEqual(isRateLimited(100).limited, false);
-  
-  // 4th request should be limited
-  const limitCheck = isRateLimited(100);
-  assert.strictEqual(limitCheck.limited, true);
-  assert.ok((limitCheck.retryAfter ?? 0) > 0);
-  
-  // Request from another chat should NOT be limited
-  assert.strictEqual(isRateLimited(200).limited, false);
-  console.log("   ✅ Rate Limiting passed.");
+    // First 3 requests should succeed
+    assert.strictEqual(isRateLimited(100).limited, false);
+    assert.strictEqual(isRateLimited(100).limited, false);
+    assert.strictEqual(isRateLimited(100).limited, false);
+    
+    // 4th request should be limited
+    const limitCheck = isRateLimited(100);
+    assert.strictEqual(limitCheck.limited, true);
+    assert.ok((limitCheck.retryAfter ?? 0) > 0);
+    
+    // Request from another chat should NOT be limited
+    assert.strictEqual(isRateLimited(200).limited, false);
+    console.log("   ✅ Rate Limiting passed.");
+  } finally {
+    resetRateLimits();
+    restoreEnv(rateLimitEnv);
+  }
 
   // --- Test 5: Database Caching ---
   console.log("🧪 Test 5: Database Caching");

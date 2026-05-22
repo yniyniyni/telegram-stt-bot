@@ -18,7 +18,7 @@
     "telegraf": "^4.16.3"
   },
   "overrides": {
-    "tar": "7.5.13"
+    "tar": "7.5.15"
   },
   "devDependencies": {
     "@types/node": "^20.11.24",

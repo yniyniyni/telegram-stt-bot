@@ -1,5 +1,5 @@
 /**
- * Escapes characters that have special meaning in HTML (&, <, >).
+ * Escapes characters that have special meaning in HTML (&, <, >, quotes).
  * Used to prevent HTML injection/parsing errors for error logs and dynamic texts.
  */
 export function escapeHTML(str: string): string {
@@ -8,7 +8,8 @@ export function escapeHTML(str: string): string {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 export function getPositiveIntegerEnv(name: string, defaultValue: number): number {

@@ -19,6 +19,14 @@ export interface Locales {
   unknownCommand: string;
 }
 
+function formatTranscriptionErrorDetail(err: string): string {
+  const detail = err.trim();
+  if (!detail) return "";
+
+  const shortened = detail.length > 180 ? `${detail.slice(0, 177)}...` : detail;
+  return escapeHTML(shortened);
+}
+
 const ruLocale: Locales = {
   chatNotAuthorized: "⚠️ Этот чат не авторизован для использования бота.",
   rateLimited: (retryAfter) => `⚠️ Превышен лимит запросов. Пожалуйста, подождите ${retryAfter} сек. перед следующей попыткой.`,
@@ -62,7 +70,10 @@ const ruLocale: Locales = {
     const userLink = username ? ` (@${escapeHTML(username)})` : "";
     return `📹 <b>Видеосообщение от ${name}${userLink} (Полированное):</b>\n\n`;
   },
-  transcriptionError: () => `❌ Не удалось расшифровать сообщение. Попробуйте позже.`,
+  transcriptionError: (err) => {
+    const detail = formatTranscriptionErrorDetail(err);
+    return `❌ Не удалось расшифровать сообщение. Попробуйте позже.${detail ? `\n\n<i>Детали: ${detail}</i>` : ""}`;
+  },
   durationLimitExceeded: (maxSec) => `⚠️ Длительность сообщения превышает лимит (${maxSec} сек.). Расшифровка отклонена.`,
   fileSizeLimitExceeded: (maxBytes) => `⚠️ Размер файла превышает лимит (${Math.floor(maxBytes / 1024 / 1024)} МБ). Расшифровка отклонена.`,
   tooManyTranscriptions: "⚠️ Сейчас уже обрабатывается слишком много сообщений. Попробуйте чуть позже.",
@@ -112,7 +123,10 @@ const enLocale: Locales = {
     const userLink = username ? ` (@${escapeHTML(username)})` : "";
     return `📹 <b>Video message from ${name}${userLink} (Polished):</b>\n\n`;
   },
-  transcriptionError: () => `❌ Could not transcribe the message. Please try again later.`,
+  transcriptionError: (err) => {
+    const detail = formatTranscriptionErrorDetail(err);
+    return `❌ Could not transcribe the message. Please try again later.${detail ? `\n\n<i>Details: ${detail}</i>` : ""}`;
+  },
   durationLimitExceeded: (maxSec) => `⚠️ Message duration exceeds the limit of ${maxSec}s. Transcription rejected.`,
   fileSizeLimitExceeded: (maxBytes) => `⚠️ File size exceeds the limit (${Math.floor(maxBytes / 1024 / 1024)} MB). Transcription rejected.`,
   tooManyTranscriptions: "⚠️ Too many messages are being processed right now. Please try again shortly.",
