@@ -103,12 +103,24 @@ async function runTests() {
   const firstLookup = await getCachedTranscription(fileUniqueId);
   assert.strictEqual(firstLookup, null);
 
-  // Cache it
+  // Cache raw only
   await cacheTranscription(fileUniqueId, chatId, userId, duration, transcript);
 
-  // Retrieve it
+  // Retrieve raw only
   const secondLookup = await getCachedTranscription(fileUniqueId);
-  assert.strictEqual(secondLookup, transcript);
+  assert.ok(secondLookup !== null);
+  assert.strictEqual(secondLookup.rawText, transcript);
+  assert.strictEqual(secondLookup.polishedText, null);
+
+  // Cache raw and polished
+  const polishedTranscript = "This is a polished speech-to-text response.";
+  await cacheTranscription(fileUniqueId, chatId, userId, duration, transcript, polishedTranscript);
+
+  // Retrieve raw and polished
+  const thirdLookup = await getCachedTranscription(fileUniqueId);
+  assert.ok(thirdLookup !== null);
+  assert.strictEqual(thirdLookup.rawText, transcript);
+  assert.strictEqual(thirdLookup.polishedText, polishedTranscript);
 
   // Close and clean up test db file
   await closeDb();
@@ -116,6 +128,28 @@ async function runTests() {
     fs.unlinkSync(testDbFile);
   }
   console.log("   ✅ Database Caching passed.");
+
+  // --- Test 7: Gemini Polisher Fallback ---
+  console.log("🧪 Test 7: Gemini Polisher Graceful Fallback");
+  const { polishTranscript } = await import('../src/polisher.js');
+  
+  // Temporarily unset keys to test fallback
+  const oldGeminiKey = process.env.GEMINI_API_KEY;
+  const oldGoogleKey = process.env.GOOGLE_API_KEY;
+  delete process.env.GEMINI_API_KEY;
+  delete process.env.GOOGLE_API_KEY;
+
+  const rawSample = "hello um this is raw speech like you know";
+  const result = await polishTranscript(rawSample);
+  
+  // Verify that it gracefully fell back to raw text without throwing an exception
+  assert.strictEqual(result, rawSample);
+  
+  // Restore keys
+  if (oldGeminiKey) process.env.GEMINI_API_KEY = oldGeminiKey;
+  if (oldGoogleKey) process.env.GOOGLE_API_KEY = oldGoogleKey;
+  
+  console.log("   ✅ Gemini Polisher Graceful Fallback passed.");
 
   // --- Test 6: Direct Appeal and Reply Decision Logic ---
   console.log("🧪 Test 6: Direct Appeal & Reply Decision Logic");

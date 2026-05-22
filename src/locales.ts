@@ -6,9 +6,12 @@ export interface Locales {
   welcomeMessage: (botUsername: string) => string;
   helpMessage: (botUsername: string) => string;
   transcribing: string;
+  polishing: string;
   emptyTranscription: string;
   transcriptionHeaderVoice: (username?: string, fullName?: string) => string;
+  transcriptionHeaderVoicePolished: (username?: string, fullName?: string) => string;
   transcriptionHeaderVideoNote: (username?: string, fullName?: string) => string;
+  transcriptionHeaderVideoNotePolished: (username?: string, fullName?: string) => string;
   transcriptionError: (err: string) => string;
   durationLimitExceeded: (maxSec: number) => string;
   unknownCommand: string;
@@ -29,16 +32,27 @@ const ruLocale: Locales = {
     `• Просто отправьте голосовое сообщение (voice) или видеокружок (video note) в этот чат — я автоматически расшифрую его и пришлю текст.\n` +
     `• Все обычные текстовые сообщения в чате я игнорирую, если они не являются обращением ко мне (прямое сообщение в ЛС или упоминание бота через @${botUsername}).`,
   transcribing: "⏳ <i>Расшифровываю аудио...</i>",
+  polishing: "✍ <i>Длинное аудио. Полирую текст с помощью Gemini...</i>",
   emptyTranscription: "🤷‍♂️ <i>Не удалось распознать речь (пустой результат).</i>",
   transcriptionHeaderVoice: (username, fullName) => {
     const name = fullName ? escapeHTML(fullName) : "Пользователь";
     const userLink = username ? ` (@${escapeHTML(username)})` : "";
     return `🗣️ <b>Голосовое сообщение от ${name}${userLink}:</b>\n\n`;
   },
+  transcriptionHeaderVoicePolished: (username, fullName) => {
+    const name = fullName ? escapeHTML(fullName) : "Пользователь";
+    const userLink = username ? ` (@${escapeHTML(username)})` : "";
+    return `🗣️ <b>Голосовое сообщение от ${name}${userLink} (Полированное):</b>\n\n`;
+  },
   transcriptionHeaderVideoNote: (username, fullName) => {
     const name = fullName ? escapeHTML(fullName) : "Пользователь";
     const userLink = username ? ` (@${escapeHTML(username)})` : "";
     return `📹 <b>Видеосообщение от ${name}${userLink}:</b>\n\n`;
+  },
+  transcriptionHeaderVideoNotePolished: (username, fullName) => {
+    const name = fullName ? escapeHTML(fullName) : "Пользователь";
+    const userLink = username ? ` (@${escapeHTML(username)})` : "";
+    return `📹 <b>Видеосообщение от ${name}${userLink} (Полированное):</b>\n\n`;
   },
   transcriptionError: (err) => `❌ Ошибка расшифровки: <code>${escapeHTML(err)}</code>`,
   durationLimitExceeded: (maxSec) => `⚠️ Длительность сообщения превышает лимит (${maxSec} сек.). Расшифровка отклонена.`,
@@ -60,16 +74,27 @@ const enLocale: Locales = {
     `• Simply send a voice message or a video note to this chat — I will automatically transcribe it.\n` +
     `• I ignore ordinary text messages in the chat unless they are addressed to me (a direct private message or a mention @${botUsername}).`,
   transcribing: "⏳ <i>Transcribing audio...</i>",
+  polishing: "✍ <i>Long audio. Polishing text using Gemini...</i>",
   emptyTranscription: "🤷‍♂️ <i>Could not recognize speech (empty transcript).</i>",
   transcriptionHeaderVoice: (username, fullName) => {
     const name = fullName ? escapeHTML(fullName) : "User";
     const userLink = username ? ` (@${escapeHTML(username)})` : "";
     return `🗣️ <b>Voice message from ${name}${userLink}:</b>\n\n`;
   },
+  transcriptionHeaderVoicePolished: (username, fullName) => {
+    const name = fullName ? escapeHTML(fullName) : "User";
+    const userLink = username ? ` (@${escapeHTML(username)})` : "";
+    return `🗣️ <b>Voice message from ${name}${userLink} (Polished):</b>\n\n`;
+  },
   transcriptionHeaderVideoNote: (username, fullName) => {
     const name = fullName ? escapeHTML(fullName) : "User";
     const userLink = username ? ` (@${escapeHTML(username)})` : "";
     return `📹 <b>Video message from ${name}${userLink}:</b>\n\n`;
+  },
+  transcriptionHeaderVideoNotePolished: (username, fullName) => {
+    const name = fullName ? escapeHTML(fullName) : "User";
+    const userLink = username ? ` (@${escapeHTML(username)})` : "";
+    return `📹 <b>Video message from ${name}${userLink} (Polished):</b>\n\n`;
   },
   transcriptionError: (err) => `❌ Transcription error: <code>${escapeHTML(err)}</code>`,
   durationLimitExceeded: (maxSec) => `⚠️ Message duration exceeds the limit of ${maxSec}s. Transcription rejected.`,

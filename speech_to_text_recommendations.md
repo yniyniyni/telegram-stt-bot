@@ -12,11 +12,11 @@ The stack remains highly consistent with the current project:
 - **Database**: SQLite (`sqlite` & `sqlite3`) for audit logs, rate limits, or transcribing cache.
 - **Config**: `dotenv` for environment variables.
 
-### New Dependencies Required for STT:
-To handle speech-to-text, you will need a few extra tools:
-1. **AI SDK**: Depending on the chosen AI provider (e.g., `openai` for Whisper API, `@deepgram/sdk`, `assemblyai`, or a simple HTTP client like `axios` / native `fetch` for direct REST requests).
-2. **Audio Downloading**: A utility to download audio files from Telegram servers (`axios` or Node's native `stream/promises` / `fetch`).
-3. **FFmpeg (Optional but Recommended)**: Telegram voice messages are stored in Opus-encoded OGG format (`.ogg`). If the target AI API does not support `.ogg` directly, or if you want to support arbitrary audio uploads (like `.mp3`, `.wav`, `.m4a`), you will need to process them.
+### Dependencies:
+1. **Speech-to-Text AI API**: E.g., `openai` (Whisper API), `@deepgram/sdk`, or `assemblyai`.
+2. **Gemini SDK (For Polishing)**: `@google/genai` (same version: `^2.5.0` as current project).
+3. **Audio Downloading**: `axios` or Node's native `fetch` / streams.
+4. **FFmpeg (Optional but Recommended)**: Telegram voice messages are stored in Opus-encoded OGG format (`.ogg`). If the target STT API does not support `.ogg` directly, or if you want to support arbitrary audio uploads (like `.mp3`, `.wav`, `.m4a`), you will need to process them.
    - npm package: `fluent-ffmpeg`
    - system requirement: `ffmpeg` binary must be installed on the host.
 
@@ -113,7 +113,7 @@ Prevent logs from leaking secret tokens, usernames, or message content when netw
 
 For a Speech-to-Text bot, your `db.ts` SQLite database should focus on:
 1. **Audit Logs**: Storing usage statistics (user ID, audio length, transcription token cost, timestamps).
-2. **Caching (Optional)**: Storing transcription results indexed by Telegram `file_unique_id`. If the same voice message is forwarded or requested again, you can reply instantly from SQLite instead of hitting the AI API.
+2. **Caching**: Storing transcription results indexed by Telegram `file_unique_id`. If the same voice message is forwarded or requested again, you can reply instantly from SQLite instead of hitting the AI API.
 
 ### Suggested SQLite Table structure:
 ```sql
@@ -122,7 +122,8 @@ CREATE TABLE IF NOT EXISTS transcriptions (
   chat_id INTEGER,
   user_id INTEGER,
   audio_duration INTEGER, -- in seconds
-  transcription_text TEXT,
+  raw_text TEXT,
+  polished_text TEXT,     -- null if file_duration <= 45 seconds or polishing skipped
   timestamp INTEGER
 );
 
@@ -139,14 +140,112 @@ CREATE TABLE IF NOT EXISTS usage_logs (
 
 ---
 
-## 4. Key Recommendations and Implementation Workflow for AI Agents
+## 4. Transcript Polishing via Gemini (for > 45s files)
+
+If the audio duration exceeds **45 seconds**, the transcript can be hard to read due to speech irregularities, lack of punctuation, filler words, or chaotic structure. Running it through Gemini with `gemini-3.1-flash-lite` provides a clean, polished read.
+
+### A. Gemini SDK Initialization (`polisher.ts`)
+Set up a polisher module that reuses the Google Gen AI client initialization:
+
+```typescript
+import { GoogleGenAI } from '@google/genai';
+import { log } from './utils.js';
+
+let aiInstance: GoogleGenAI | null = null;
+
+function getAIClient(): GoogleGenAI {
+  if (!aiInstance) {
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+    if (!apiKey) {
+      throw new Error("FATAL: Neither GEMINI_API_KEY nor GOOGLE_API_KEY is set. Cannot initialize AI client.");
+    }
+    aiInstance = new GoogleGenAI({ apiKey });
+  }
+  return aiInstance;
+}
+```
+
+### B. Gemini Polishing Handler (`polisher.ts`)
+```typescript
+import { getLocale } from './locales.js';
+import { sanitizeHTML } from './utils.js';
+
+export async function polishTranscript(rawText: string): Promise<string> {
+  const locale = getLocale();
+  const systemInstruction = 
+    "You are an expert editor. Your task is to polish the provided raw speech-to-text transcription. " +
+    "Fix grammatical errors, add correct punctuation, remove filler words (like 'um', 'uh', 'типа', 'как бы'), " +
+    "and structure the text into readable paragraphs while fully preserving all original facts, numbers, and intent. " +
+    "Do not summarize or shorten the details significantly. " +
+    "Format the output exclusively using Telegram HTML tags: <b>text</b> (bold), <i>text</i> (italic), <code>text</code> (monospace). " +
+    "Do not use markdown formatting (like #, **, _, `).";
+
+  const userPrompt = `Please polish this raw transcript:\n\n${rawText}`;
+
+  try {
+    const aiClient = getAIClient();
+    log("DEBUG", "Requesting transcript polishing via gemini-3.1-flash-lite...");
+    
+    const response = await aiClient.models.generateContent({
+      model: 'gemini-3.1-flash-lite',
+      contents: userPrompt,
+      config: {
+        systemInstruction,
+        temperature: 0.2
+      }
+    });
+
+    const resultText = response.text || rawText;
+    return sanitizeHTML(resultText);
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    log("ERROR", `Failed to polish transcript using Gemini: ${errMsg}`);
+    return rawText; // Fallback to raw text if Gemini fails
+  }
+}
+```
+
+### C. Integrating Polishing Flow into Message Processing (`main.ts`)
+```typescript
+const duration = ctx.message.voice.duration; // duration in seconds
+let rawTranscript = await transcribeAudio(localFilePath);
+
+let finalResponse = `<b>🎙 Транскрипция:</b>\n\n${rawTranscript}`;
+
+if (duration > 45) {
+  try {
+    // Notify user we are polishing
+    const statusMsg = await ctx.reply("✍ <i>Длинное аудио. Полирую текст с помощью Gemini...</i>", { parse_mode: 'HTML', reply_to_message_id: ctx.message.message_id });
+    
+    const polished = await polishTranscript(rawTranscript);
+    
+    finalResponse = `<b>🎙 Транскрипция (Полированная):</b>\n\n${polished}`;
+    
+    // Clean up status message
+    await ctx.telegram.deleteMessage(ctx.chat.id, statusMsg.message_id);
+  } catch (err) {
+    log("WARN", "Failed polishing step, falling back to raw transcript");
+  }
+}
+
+// Send final response using splitHTMLText in case it exceeds 4000 chars
+const chunks = splitHTMLText(finalResponse);
+for (const chunk of chunks) {
+  await ctx.reply(chunk, { parse_mode: 'HTML', reply_to_message_id: ctx.message.message_id });
+}
+```
+
+---
+
+## 5. Key Recommendations and Implementation Workflow for AI Agents
 
 When instructing an AI agent to build the Speech-to-Text bot, request the implementation in the following sequential stages:
 
 ### Step 1: Environment & Initialization
 1. Establish standard `.env.example` containing:
    - `TELEGRAM_BOT_TOKEN`
-   - `STT_API_KEY` / `OPENAI_API_KEY` / `DEEPGRAM_API_KEY`
+   - `STT_API_KEY`
+   - `GEMINI_API_KEY` / `GOOGLE_API_KEY`
    - `ALLOWED_CHATS` & `ALLOW_ALL_CHATS`
    - `RATE_LIMIT_MAX_REQUESTS` & `RATE_LIMIT_WINDOW_SEC`
    - `BOT_LANGUAGE` (default: `ru`)
@@ -154,7 +253,7 @@ When instructing an AI agent to build the Speech-to-Text bot, request the implem
 2. Setup the entrypoint (`main.ts`) implementing check validation, setup logs, and system signal interception (`SIGINT`, `SIGTERM`) for clean database closure.
 
 ### Step 2: Database Layer (`db.ts`)
-1. Implement helper routines to save a successful transcription cache.
+1. Implement helper routines to save a successful transcription cache (storing both raw and polished text).
 2. Implement utility functions to fetch cached text based on `file_unique_id`.
 3. Add a log aggregator to track total transcribed seconds per user for quotas.
 
@@ -167,37 +266,28 @@ When instructing an AI agent to build the Speech-to-Text bot, request the implem
    ```typescript
    const fileId = ctx.message.voice.file_id;
    const fileLink = await ctx.telegram.getFileLink(fileId);
-   // fileLink.href will contain the direct download URL
    ```
 3. Implement file downloader:
    - Write file stream safely to a temporary workspace directory (e.g. `data/temp/`).
    - Clean up temporary files immediately inside a `finally` block of the handler.
 
-### Step 4: AI Transcription Service (`transcriber.ts` - New Module)
-1. Choose the target API:
-   - **OpenAI Whisper / Groq Whisper**: Accepts `.ogg` natively. Fast and accurate.
-   - **AssemblyAI / Deepgram**: Great options for long form and speaker diarization.
-2. Check if conversion to `.mp3` is required. If yes, write a helper using `fluent-ffmpeg`:
-   ```typescript
-   import ffmpeg from 'fluent-ffmpeg';
-   // convert inputPath (.ogg) to outputPath (.mp3)
-   ```
-3. Implement the API client calling the transcription endpoint, handling timeouts, and retries.
+### Step 4: AI Transcription & Gemini Polishing Service
+1. Implement the API client calling the transcription endpoint, handling timeouts, and retries.
+2. Implement the `polishTranscript` helper using the Gemini SDK to process texts when audio duration is >45s.
 
 ### Step 5: Telegram Formatting and Delivery (`main.ts`)
 1. Inform user when transcription starts: `⏳ Transcribing audio...`
-2. Perform transcription.
-3. On completion, parse the raw text. Ensure characters are escaped if using HTML tags to format details (like `<b>[Speaker 1]:</b>`).
-4. If transcription is empty, return a localized message: `Could not hear any speech.`
-5. Use `splitHTMLText` to send chunked Telegram messages if the output exceeds 4000 characters.
-6. Support reply formatting, e.g., reply directly to the voice message request.
+2. Perform transcription. If length > 45s, perform polishing and notify the user about it.
+3. On completion, parse the raw/polished text. Ensure characters are escaped if using HTML tags to format details.
+4. Use `splitHTMLText` to send chunked Telegram messages if the output exceeds 4000 characters.
+5. Support reply formatting, replying directly to the voice message request.
 
 ---
 
-## 5. Verification Plan
+## 6. Verification Plan
 
 Ensure your agents build the following test suites (modeled after `test_utils.ts` / `test_main.ts`):
-- **Local Transcriber Mocking**: Test formatting code blocks and chunk splitting using pre-set transcript outputs.
-- **Database transaction checks**: Verify that transcription caching works correctly and handles duplicate `file_unique_id` requests.
+- **Local Transcriber & Gemini Mocking**: Test formatting code blocks, chunk splitting, and ensure polishing function is invoked only when duration is above 45.
+- **Database transaction checks**: Verify that transcription caching works correctly and handles duplicate `file_unique_id` requests (saving/loading raw and polished states).
 - **Rate limiting validation**: Simulate consecutive requests to ensure rate-limiting triggers appropriately.
 - **Fail-closed authorization checks**: Verify that requests from non-whitelisted chats are strictly ignored.

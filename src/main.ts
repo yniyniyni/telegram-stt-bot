@@ -3,9 +3,10 @@ dotenv.config();
 
 import { Telegraf } from 'telegraf';
 import { message } from 'telegraf/filters';
-import { initDb, closeDb, getCachedTranscription, cacheTranscription } from './db.js';
+import { initDb, closeDb, getCachedTranscription, cacheTranscription, updateCachedPolishedText } from './db.js';
 import { downloadTelegramFile, cleanupFile } from './audio.js';
 import { transcribeFile } from './transcriber.js';
+import { polishTranscript } from './polisher.js';
 import {
   isChatAuthorized,
   isRateLimited,
@@ -34,6 +35,8 @@ const bot = new Telegraf(botToken);
 
 // Determine max audio duration (default: 10 minutes)
 const MAX_DURATION = parseInt(process.env.MAX_AUDIO_DURATION_SEC || '600', 10);
+const POLISH_MIN_DURATION = parseInt(process.env.POLISH_MIN_DURATION_SEC || '45', 10);
+const POLISH_ENABLED = process.env.GEMINI_POLISH_ENABLED !== 'false';
 
 /**
  * Main message handler middleware.
@@ -155,10 +158,39 @@ bot.on('message', async (ctx, next) => {
   }
 
   // Check Database cache first
-  const cachedText = await getCachedTranscription(fileUniqueId);
-  if (cachedText !== null) {
+  const cached = await getCachedTranscription(fileUniqueId);
+  if (cached !== null) {
     log("INFO", `Cache hit for file_unique_id: ${fileUniqueId}. Replying from database cache.`);
-    await sendTranscriptionResult(ctx, cachedText, targetIsVoice, username, fullName);
+    
+    let textToSend = (POLISH_ENABLED ? cached.polishedText : null) || cached.rawText;
+    let isPolished = POLISH_ENABLED && !!cached.polishedText;
+
+    // On-demand polishing if cached before we added polishing, and now it qualifies
+    if (POLISH_ENABLED && duration > POLISH_MIN_DURATION && !cached.polishedText) {
+      log("INFO", `File ${fileUniqueId} qualifies for polishing but only raw text was cached. Polishing on demand...`);
+      let polishStatusMsgId: number | null = null;
+      try {
+        const polishStatusMsg = await ctx.replyWithHTML(locale.polishing, { reply_to_message_id: msg.message_id } as any);
+        polishStatusMsgId = polishStatusMsg.message_id;
+        
+        const polished = await polishTranscript(cached.rawText);
+        await updateCachedPolishedText(fileUniqueId, polished);
+        textToSend = polished;
+        isPolished = true;
+      } catch (err) {
+        log("ERROR", `Failed to polish cached transcript on demand: ${safeErrorForLog(err)}`);
+      } finally {
+        if (polishStatusMsgId !== null) {
+          try {
+            await ctx.telegram.deleteMessage(chatId, polishStatusMsgId);
+          } catch (delErr) {
+            log("WARN", `Failed to delete polishing status message ${polishStatusMsgId}: ${safeErrorForLog(delErr)}`);
+          }
+        }
+      }
+    }
+
+    await sendTranscriptionResult(ctx, textToSend, targetIsVoice, isPolished, username, fullName);
     return;
   }
 
@@ -182,11 +214,51 @@ bot.on('message', async (ctx, next) => {
     // Call Deepgram API for STT
     const transcriptText = await transcribeFile(localTempFile);
 
+    let polishedText: string | null = null;
+    let isPolished = false;
+
+    // Handle polishing if qualifies
+    if (POLISH_ENABLED && duration > POLISH_MIN_DURATION) {
+      // 1. Delete transcribing message first
+      if (statusMsgId !== null) {
+        try {
+          await ctx.telegram.deleteMessage(chatId, statusMsgId);
+          statusMsgId = null;
+        } catch (delErr) {
+          log("WARN", `Failed to delete transcribing status: ${safeErrorForLog(delErr)}`);
+        }
+      }
+
+      // 2. Send polishing message
+      let polishStatusMsg: any = null;
+      try {
+        polishStatusMsg = await ctx.replyWithHTML(locale.polishing, { reply_to_message_id: msg.message_id } as any);
+      } catch (err) {
+        log("ERROR", `Failed to send polishing status message: ${safeErrorForLog(err)}`);
+      }
+
+      try {
+        polishedText = await polishTranscript(transcriptText);
+        isPolished = true;
+      } catch (err) {
+        log("ERROR", `Polishing step failed: ${safeErrorForLog(err)}`);
+      } finally {
+        if (polishStatusMsg !== null) {
+          try {
+            await ctx.telegram.deleteMessage(chatId, polishStatusMsg.message_id);
+          } catch (delErr) {
+            log("WARN", `Failed to delete polishing status: ${safeErrorForLog(delErr)}`);
+          }
+        }
+      }
+    }
+
     // Cache the successful transcript in the database
-    await cacheTranscription(fileUniqueId, chatId, userId, duration, transcriptText);
+    await cacheTranscription(fileUniqueId, chatId, userId, duration, transcriptText, polishedText);
 
     // Reply with the transcription text
-    await sendTranscriptionResult(ctx, transcriptText, targetIsVoice, username, fullName);
+    const finalToSend = isPolished && polishedText ? polishedText : transcriptText;
+    await sendTranscriptionResult(ctx, finalToSend, targetIsVoice, isPolished, username, fullName);
 
   } catch (err) {
     const errorMsg = safeErrorForLog(err);
@@ -202,7 +274,7 @@ bot.on('message', async (ctx, next) => {
       cleanupFile(localTempFile);
     }
     
-    // 2. Delete temporary transcribing status message
+    // 2. Delete temporary transcribing status message if still exists
     if (statusMsgId !== null) {
       try {
         await ctx.telegram.deleteMessage(chatId, statusMsgId);
@@ -220,6 +292,7 @@ async function sendTranscriptionResult(
   ctx: any,
   rawText: string,
   isVoice: boolean,
+  isPolished: boolean,
   username?: string,
   fullName?: string
 ): Promise<void> {
@@ -231,10 +304,17 @@ async function sendTranscriptionResult(
     return;
   }
 
-  // Format header
-  const header = isVoice
-    ? locale.transcriptionHeaderVoice(username, fullName)
-    : locale.transcriptionHeaderVideoNote(username, fullName);
+  // Format header depending on whether it is polished
+  let header = "";
+  if (isPolished) {
+    header = isVoice
+      ? locale.transcriptionHeaderVoicePolished(username, fullName)
+      : locale.transcriptionHeaderVideoNotePolished(username, fullName);
+  } else {
+    header = isVoice
+      ? locale.transcriptionHeaderVoice(username, fullName)
+      : locale.transcriptionHeaderVideoNote(username, fullName);
+  }
 
   // Combine header and sanitized text
   const fullHTML = header + sanitizeHTML(rawText);
