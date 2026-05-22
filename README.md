@@ -6,6 +6,8 @@ An automated Speech-to-Text (STT) Telegram bot built using **Node.js**, **TypeSc
 
 It automatically transcribes voice messages and video notes (circles) in authorized Telegram chats, provides intelligent caching to reduce API costs, and strictly ignores all unrelated messages to preserve privacy.
 
+**WARNING!!! 100% AI slop project** written by Gemini 3.5 Flash from scratch. Use with caution.
+
 ## Features
 
 - **Automated STT**: Transcribes voice messages (`.ogg`) and video notes (`.mp4` circles) automatically when sent to the chat.
