@@ -41,6 +41,7 @@ const MAX_DURATION = parseInt(process.env.MAX_AUDIO_DURATION_SEC || '600', 10);
  */
 bot.on('message', async (ctx, next) => {
   const msg = ctx.message;
+  const anyMsg = msg as any;
   const locale = getLocale();
   const chatId = ctx.chat.id;
 
@@ -62,12 +63,18 @@ bot.on('message', async (ctx, next) => {
     const hasMention = text.includes(`@${botUsername}`);
     
     // Check if it's a reply to the bot's own message
-    const isReplyToBot = msg.reply_to_message?.from?.id === ctx.botInfo.id;
+    const isReplyToBot = anyMsg.reply_to_message?.from?.id === ctx.botInfo.id;
     
     if (hasMention || isReplyToBot) {
       isDirectAppeal = true;
     }
   }
+
+  // Check if the appeal is a reply to a voice message or video note
+  const repliedMsg = anyMsg.reply_to_message;
+  const isRepliedVoice = !!(repliedMsg && 'voice' in repliedMsg);
+  const isRepliedVideoNote = !!(repliedMsg && 'video_note' in repliedMsg);
+  const shouldTranscribeReplied = isDirectAppeal && (isRepliedVoice || isRepliedVideoNote);
 
   // If the message is not a voice message, video note, or a direct appeal, ignore it completely
   if (!isVoice && !isVideoNote && !isDirectAppeal) {
@@ -88,8 +95,8 @@ bot.on('message', async (ctx, next) => {
     return;
   }
 
-  // 3. Process direct appeals (text commands/messages)
-  if (isDirectAppeal && !isVoice && !isVideoNote) {
+  // 3. Process direct appeals (text commands/messages) that are not replies to voice/video notes
+  if (isDirectAppeal && !isVoice && !isVideoNote && !shouldTranscribeReplied) {
     if ('text' in msg) {
       const text = msg.text || '';
       const botUsername = ctx.botInfo.username;
@@ -111,15 +118,18 @@ bot.on('message', async (ctx, next) => {
   }
 
   // 4. Process voice messages and video notes
-  const anyMsg = msg as any;
-  const fileId = isVoice ? anyMsg.voice.file_id : anyMsg.video_note.file_id;
-  const fileUniqueId = isVoice ? anyMsg.voice.file_unique_id : anyMsg.video_note.file_unique_id;
-  const duration = isVoice ? anyMsg.voice.duration : anyMsg.video_note.duration;
-  const userId = msg.from?.id || 0;
-  const username = msg.from?.username;
-  const fullName = [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(' ');
+  const targetMsg = shouldTranscribeReplied ? repliedMsg! : msg;
+  const targetIsVoice = shouldTranscribeReplied ? isRepliedVoice : isVoice;
+  
+  const anyTargetMsg = targetMsg as any;
+  const fileId = targetIsVoice ? anyTargetMsg.voice.file_id : anyTargetMsg.video_note.file_id;
+  const fileUniqueId = targetIsVoice ? anyTargetMsg.voice.file_unique_id : anyTargetMsg.video_note.file_unique_id;
+  const duration = targetIsVoice ? anyTargetMsg.voice.duration : anyTargetMsg.video_note.duration;
+  const userId = targetMsg.from?.id || 0;
+  const username = targetMsg.from?.username;
+  const fullName = [targetMsg.from?.first_name, targetMsg.from?.last_name].filter(Boolean).join(' ');
 
-  log("INFO", `Processing ${isVoice ? 'voice' : 'video note'} from user ${userId} in chat ${chatId}. Duration: ${duration}s`);
+  log("INFO", `Processing ${targetIsVoice ? 'voice' : 'video note'} from user ${userId} in chat ${chatId}. Duration: ${duration}s`);
 
   // Enforce rate limiting
   const rateLimit = isRateLimited(chatId);
@@ -148,7 +158,7 @@ bot.on('message', async (ctx, next) => {
   const cachedText = await getCachedTranscription(fileUniqueId);
   if (cachedText !== null) {
     log("INFO", `Cache hit for file_unique_id: ${fileUniqueId}. Replying from database cache.`);
-    await sendTranscriptionResult(ctx, cachedText, isVoice, username, fullName);
+    await sendTranscriptionResult(ctx, cachedText, targetIsVoice, username, fullName);
     return;
   }
 
@@ -176,7 +186,7 @@ bot.on('message', async (ctx, next) => {
     await cacheTranscription(fileUniqueId, chatId, userId, duration, transcriptText);
 
     // Reply with the transcription text
-    await sendTranscriptionResult(ctx, transcriptText, isVoice, username, fullName);
+    await sendTranscriptionResult(ctx, transcriptText, targetIsVoice, username, fullName);
 
   } catch (err) {
     const errorMsg = safeErrorForLog(err);

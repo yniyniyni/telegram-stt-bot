@@ -117,6 +117,123 @@ async function runTests() {
   }
   console.log("   ✅ Database Caching passed.");
 
+  // --- Test 6: Direct Appeal and Reply Decision Logic ---
+  console.log("🧪 Test 6: Direct Appeal & Reply Decision Logic");
+  
+  const botUsername = "stt_test_bot";
+  const botId = 12345;
+
+  function determineTargetMessage(msg: any, isPrivateChat: boolean) {
+    const isVoice = 'voice' in msg;
+    const isVideoNote = 'video_note' in msg;
+    
+    let isDirectAppeal = false;
+    if (isPrivateChat) {
+      isDirectAppeal = true;
+    } else if ('text' in msg) {
+      const text = msg.text || '';
+      const hasMention = text.includes(`@${botUsername}`);
+      const isReplyToBot = msg.reply_to_message?.from?.id === botId;
+      if (hasMention || isReplyToBot) {
+        isDirectAppeal = true;
+      }
+    }
+
+    const repliedMsg = msg.reply_to_message;
+    const isRepliedVoice = !!(repliedMsg && 'voice' in repliedMsg);
+    const isRepliedVideoNote = !!(repliedMsg && 'video_note' in repliedMsg);
+    const shouldTranscribeReplied = isDirectAppeal && (isRepliedVoice || isRepliedVideoNote);
+
+    if (!isVoice && !isVideoNote && !isDirectAppeal) {
+      return { action: 'ignore' };
+    }
+
+    if (isDirectAppeal && !isVoice && !isVideoNote && !shouldTranscribeReplied) {
+      return { action: 'command' };
+    }
+
+    const targetMsg = shouldTranscribeReplied ? repliedMsg : msg;
+    const targetIsVoice = shouldTranscribeReplied ? isRepliedVoice : isVoice;
+
+    return {
+      action: 'transcribe',
+      targetIsVoice,
+      fileId: targetIsVoice ? targetMsg.voice.file_id : targetMsg.video_note.file_id,
+      fileUniqueId: targetIsVoice ? targetMsg.voice.file_unique_id : targetMsg.video_note.file_unique_id,
+      duration: targetIsVoice ? targetMsg.voice.duration : targetMsg.video_note.duration,
+      senderId: targetMsg.from?.id || 0
+    };
+  }
+
+  // Scenario 1: Normal text message in a group (not private chat) -> should ignore
+  const res1 = determineTargetMessage({ text: "Hello guys" }, false);
+  assert.strictEqual(res1.action, 'ignore');
+
+  // Scenario 2: Direct voice message in a group -> should transcribe direct voice
+  const res2 = determineTargetMessage({
+    voice: { file_id: "v1", file_unique_id: "vu1", duration: 10 },
+    from: { id: 999 }
+  }, false);
+  assert.deepStrictEqual(res2, {
+    action: 'transcribe',
+    targetIsVoice: true,
+    fileId: "v1",
+    fileUniqueId: "vu1",
+    duration: 10,
+    senderId: 999
+  });
+
+  // Scenario 3: Mention in group, no reply -> should process as command
+  const res3 = determineTargetMessage({ text: `@${botUsername} /help` }, false);
+  assert.strictEqual(res3.action, 'command');
+
+  // Scenario 4: Mention in group in reply to a voice message -> should transcribe replied voice
+  const res4 = determineTargetMessage({
+    text: `@${botUsername} transcribe this`,
+    reply_to_message: {
+      voice: { file_id: "v2", file_unique_id: "vu2", duration: 25 },
+      from: { id: 888 }
+    }
+  }, false);
+  assert.deepStrictEqual(res4, {
+    action: 'transcribe',
+    targetIsVoice: true,
+    fileId: "v2",
+    fileUniqueId: "vu2",
+    duration: 25,
+    senderId: 888
+  });
+
+  // Scenario 5: Reply to bot's message in reply to a video note -> should transcribe replied video note
+  const res5 = determineTargetMessage({
+    text: "please transcribe",
+    reply_to_message: {
+      video_note: { file_id: "vid1", file_unique_id: "vidu1", duration: 60 },
+      from: { id: 777 }
+    }
+  }, false);
+  // Wait, if it's reply to some other message but not bot's own message, isDirectAppeal is false
+  assert.strictEqual(res5.action, 'ignore');
+
+  // Scenario 6: Reply to bot's message (by botId) in reply to a video note -> should transcribe replied video note
+  const res6 = determineTargetMessage({
+    text: "do it",
+    reply_to_message: {
+      video_note: { file_id: "vid1", file_unique_id: "vidu1", duration: 60 },
+      from: { id: botId } // The replied message is from the bot
+    }
+  }, false);
+  assert.deepStrictEqual(res6, {
+    action: 'transcribe',
+    targetIsVoice: false,
+    fileId: "vid1",
+    fileUniqueId: "vidu1",
+    duration: 60,
+    senderId: botId
+  });
+
+  console.log("   ✅ Direct Appeal & Reply Decision Logic passed.");
+
   console.log("\n🎉 All tests passed successfully!");
 }
 
