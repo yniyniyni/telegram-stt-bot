@@ -37,6 +37,7 @@ const bot = new Telegraf(botToken);
 const MAX_DURATION = parseInt(process.env.MAX_AUDIO_DURATION_SEC || '600', 10);
 const POLISH_MIN_DURATION = parseInt(process.env.POLISH_MIN_DURATION_SEC || '45', 10);
 const POLISH_ENABLED = process.env.GEMINI_POLISH_ENABLED !== 'false';
+const POLISH_VIDEO = process.env.GEMINI_POLISH_VIDEO !== 'false';
 
 /**
  * Main message handler middleware.
@@ -162,11 +163,12 @@ bot.on('message', async (ctx, next) => {
   if (cached !== null) {
     log("INFO", `Cache hit for file_unique_id: ${fileUniqueId}. Replying from database cache.`);
     
-    let textToSend = (POLISH_ENABLED ? cached.polishedText : null) || cached.rawText;
-    let isPolished = POLISH_ENABLED && !!cached.polishedText;
+    const qualifiesForPolishing = POLISH_ENABLED && duration > POLISH_MIN_DURATION && (targetIsVoice || POLISH_VIDEO);
+    let textToSend = (qualifiesForPolishing ? cached.polishedText : null) || cached.rawText;
+    let isPolished = qualifiesForPolishing && !!cached.polishedText;
 
     // On-demand polishing if cached before we added polishing, and now it qualifies
-    if (POLISH_ENABLED && duration > POLISH_MIN_DURATION && !cached.polishedText) {
+    if (qualifiesForPolishing && !cached.polishedText) {
       log("INFO", `File ${fileUniqueId} qualifies for polishing but only raw text was cached. Polishing on demand...`);
       let polishStatusMsgId: number | null = null;
       try {
@@ -217,8 +219,10 @@ bot.on('message', async (ctx, next) => {
     let polishedText: string | null = null;
     let isPolished = false;
 
+    const qualifiesForPolishing = POLISH_ENABLED && duration > POLISH_MIN_DURATION && (targetIsVoice || POLISH_VIDEO);
+
     // Handle polishing if qualifies
-    if (POLISH_ENABLED && duration > POLISH_MIN_DURATION) {
+    if (qualifiesForPolishing) {
       // 1. Delete transcribing message first
       if (statusMsgId !== null) {
         try {

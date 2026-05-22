@@ -268,6 +268,39 @@ async function runTests() {
 
   console.log("   ✅ Direct Appeal & Reply Decision Logic passed.");
 
+  // --- Test 8: Gemini Polishing Decision Logic ---
+  console.log("🧪 Test 8: Gemini Polishing Decision Logic (Toggles & Video Notes)");
+  
+  function qualifiesForPolishingLogic(
+    duration: number,
+    targetIsVoice: boolean,
+    polishEnabled: boolean,
+    polishVideo: boolean,
+    minDuration: number
+  ): boolean {
+    return polishEnabled && duration > minDuration && (targetIsVoice || polishVideo);
+  }
+
+  // Case 1: Disabled globally
+  assert.strictEqual(qualifiesForPolishingLogic(50, true, false, true, 45), false);
+  assert.strictEqual(qualifiesForPolishingLogic(50, false, false, true, 45), false);
+
+  // Case 2: Enabled globally, duration below or equal to threshold
+  assert.strictEqual(qualifiesForPolishingLogic(45, true, true, true, 45), false);
+  assert.strictEqual(qualifiesForPolishingLogic(10, true, true, true, 45), false);
+
+  // Case 3: Voice message, above threshold
+  assert.strictEqual(qualifiesForPolishingLogic(50, true, true, false, 45), true);
+  assert.strictEqual(qualifiesForPolishingLogic(50, true, true, true, 45), true);
+
+  // Case 4: Video note, above threshold, video polishing disabled
+  assert.strictEqual(qualifiesForPolishingLogic(50, false, true, false, 45), false);
+
+  // Case 5: Video note, above threshold, video polishing enabled
+  assert.strictEqual(qualifiesForPolishingLogic(50, false, true, true, 45), true);
+
+  console.log("   ✅ Gemini Polishing Decision Logic passed.");
+
   console.log("\n🎉 All tests passed successfully!");
 }
 
