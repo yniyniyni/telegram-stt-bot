@@ -12,19 +12,11 @@ export interface Locales {
   transcriptionHeaderVoicePolished: (username?: string, fullName?: string) => string;
   transcriptionHeaderVideoNote: (username?: string, fullName?: string) => string;
   transcriptionHeaderVideoNotePolished: (username?: string, fullName?: string) => string;
-  transcriptionError: (err: string) => string;
+  transcriptionError: () => string;
   durationLimitExceeded: (maxSec: number) => string;
   fileSizeLimitExceeded: (maxBytes: number) => string;
   tooManyTranscriptions: string;
   unknownCommand: string;
-}
-
-function formatTranscriptionErrorDetail(err: string): string {
-  const detail = err.trim();
-  if (!detail) return "";
-
-  const shortened = detail.length > 180 ? `${detail.slice(0, 177)}...` : detail;
-  return escapeHTML(shortened);
 }
 
 const ruLocale: Locales = {
@@ -70,10 +62,7 @@ const ruLocale: Locales = {
     const userLink = username ? ` (@${escapeHTML(username)})` : "";
     return `📹 <b>Видеосообщение от ${name}${userLink} (Полированное):</b>\n\n`;
   },
-  transcriptionError: (err) => {
-    const detail = formatTranscriptionErrorDetail(err);
-    return `❌ Не удалось расшифровать сообщение. Попробуйте позже.${detail ? `\n\n<i>Детали: ${detail}</i>` : ""}`;
-  },
+  transcriptionError: () => "❌ Не удалось расшифровать сообщение. Попробуйте позже.",
   durationLimitExceeded: (maxSec) => `⚠️ Длительность сообщения превышает лимит (${maxSec} сек.). Расшифровка отклонена.`,
   fileSizeLimitExceeded: (maxBytes) => `⚠️ Размер файла превышает лимит (${Math.floor(maxBytes / 1024 / 1024)} МБ). Расшифровка отклонена.`,
   tooManyTranscriptions: "⚠️ Сейчас уже обрабатывается слишком много сообщений. Попробуйте чуть позже.",
@@ -123,10 +112,7 @@ const enLocale: Locales = {
     const userLink = username ? ` (@${escapeHTML(username)})` : "";
     return `📹 <b>Video message from ${name}${userLink} (Polished):</b>\n\n`;
   },
-  transcriptionError: (err) => {
-    const detail = formatTranscriptionErrorDetail(err);
-    return `❌ Could not transcribe the message. Please try again later.${detail ? `\n\n<i>Details: ${detail}</i>` : ""}`;
-  },
+  transcriptionError: () => "❌ Could not transcribe the message. Please try again later.",
   durationLimitExceeded: (maxSec) => `⚠️ Message duration exceeds the limit of ${maxSec}s. Transcription rejected.`,
   fileSizeLimitExceeded: (maxBytes) => `⚠️ File size exceeds the limit (${Math.floor(maxBytes / 1024 / 1024)} MB). Transcription rejected.`,
   tooManyTranscriptions: "⚠️ Too many messages are being processed right now. Please try again shortly.",

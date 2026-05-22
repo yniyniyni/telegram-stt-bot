@@ -102,13 +102,15 @@ export async function downloadTelegramFile(fileLink: string, options: DownloadTe
 /**
  * Safely deletes a file from the disk.
  */
-export function cleanupFile(filePath: string): void {
+export function cleanupFile(filePath: string): boolean {
   try {
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
       log("DEBUG", `Cleaned up local file: ${filePath}`);
     }
+    return true;
   } catch (err) {
     log("ERROR", `Failed to clean up file ${filePath}:`, err);
+    return false;
   }
 }

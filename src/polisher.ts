@@ -3,6 +3,20 @@ import { getPositiveIntegerEnv, log } from './utils.js';
 
 let aiInstance: GoogleGenAI | null = null;
 
+export interface ShouldPolishTranscriptOptions {
+  polishEnabled: boolean;
+  duration: number;
+  minDuration: number;
+  targetIsVoice: boolean;
+  polishVideo: boolean;
+}
+
+export function shouldPolishTranscript(options: ShouldPolishTranscriptOptions): boolean {
+  return options.polishEnabled &&
+    options.duration > options.minDuration &&
+    (options.targetIsVoice || options.polishVideo);
+}
+
 /**
  * Initializes and retrieves the Google Gen AI client.
  * Throws an error if neither GEMINI_API_KEY nor GOOGLE_API_KEY is set.

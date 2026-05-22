@@ -153,8 +153,16 @@ export async function cacheTranscription(
     const database = getDb();
     const now = Math.floor(Date.now() / 1000);
     await database.run(
-      `INSERT OR REPLACE INTO transcriptions (file_unique_id, chat_id, user_id, audio_duration, transcription_text, raw_text, polished_text, timestamp)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO transcriptions (file_unique_id, chat_id, user_id, audio_duration, transcription_text, raw_text, polished_text, timestamp)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(file_unique_id) DO UPDATE SET
+         chat_id = excluded.chat_id,
+         user_id = excluded.user_id,
+         audio_duration = excluded.audio_duration,
+         transcription_text = excluded.transcription_text,
+         raw_text = excluded.raw_text,
+         polished_text = COALESCE(excluded.polished_text, transcriptions.polished_text),
+         timestamp = excluded.timestamp`,
       [fileUniqueId, chatId, userId, audioDuration, rawText, rawText, polishedText, now]
     );
     log("DEBUG", `Successfully cached transcription for file_unique_id: ${fileUniqueId}`);

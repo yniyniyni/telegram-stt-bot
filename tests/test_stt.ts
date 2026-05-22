@@ -2,8 +2,13 @@ import assert from 'assert';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import sqlite3 from 'sqlite3';
+import { open } from 'sqlite';
 import { initDb, closeDb, getCachedTranscription, cacheTranscription, updateCachedPolishedText } from '../src/db.js';
+import { cleanupFile } from '../src/audio.js';
+import { shouldPolishTranscript } from '../src/polisher.js';
 import { determineMessageRouting } from '../src/routing.js';
+import { getLocale } from '../src/locales.js';
 import {
   escapeHTML,
   sanitizeHTML,
@@ -52,6 +57,19 @@ async function runTests() {
 
   const crossingTags = sanitizeHTML("<b><i>x</b>y</i>");
   assert.strictEqual(crossingTags, "<b><i>x&lt;/b&gt;y</i></b>");
+
+  const localeEnv = captureEnv(['BOT_LANGUAGE']);
+  try {
+    process.env.BOT_LANGUAGE = 'en';
+    const genericError = getLocale().transcriptionError();
+    assert.ok(!genericError.includes('Details'));
+    assert.ok(!genericError.includes('Deepgram'));
+
+    process.env.BOT_LANGUAGE = 'ru';
+    assert.ok(!getLocale().transcriptionError().includes('Детали'));
+  } finally {
+    restoreEnv(localeEnv);
+  }
   console.log("   ✅ HTML Escaping and Sanitizing passed.");
 
   // --- Test 2: HTML Splitting ---
@@ -176,10 +194,54 @@ async function runTests() {
     assert.ok(fourthLookup !== null);
     assert.strictEqual(fourthLookup.polishedText, updatedPolishedTranscript);
 
+    const rawOnlyOverwrite = "Raw transcript after polished text exists.";
+    await cacheTranscription(fileUniqueId, chatId, userId, duration, rawOnlyOverwrite);
+    const fifthLookup = await getCachedTranscription(fileUniqueId);
+    assert.ok(fifthLookup !== null);
+    assert.strictEqual(fifthLookup.rawText, rawOnlyOverwrite);
+    assert.strictEqual(fifthLookup.polishedText, updatedPolishedTranscript);
+
+    const replacementPolishedTranscript = "Replacement polished response.";
+    await cacheTranscription(fileUniqueId, chatId, userId, duration, rawOnlyOverwrite, replacementPolishedTranscript);
+    const sixthLookup = await getCachedTranscription(fileUniqueId);
+    assert.ok(sixthLookup !== null);
+    assert.strictEqual(sixthLookup.polishedText, replacementPolishedTranscript);
+
     await closeDb();
 
+    const legacyDb = await open({
+      filename: legacyDbFile,
+      driver: sqlite3.Database
+    });
+    await legacyDb.exec(`
+      CREATE TABLE transcriptions (
+        file_unique_id TEXT PRIMARY KEY,
+        chat_id INTEGER,
+        user_id INTEGER,
+        audio_duration INTEGER,
+        transcription_text TEXT,
+        timestamp INTEGER
+      );
+    `);
+    const legacyTranscript = "Legacy transcription text.";
+    await legacyDb.run(
+      `INSERT INTO transcriptions (file_unique_id, chat_id, user_id, audio_duration, transcription_text, timestamp)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      ["legacy_unique_id", chatId, userId, duration, legacyTranscript, 123456]
+    );
+    await legacyDb.close();
+
     process.env.DB_FILE = legacyDbFile;
-    await initDb();
+    const migratedDb = await initDb();
+    const migratedColumns = await migratedDb.all<{ name: string }[]>(`PRAGMA table_info(transcriptions);`);
+    const migratedColumnNames = migratedColumns.map((column) => column.name);
+    assert.ok(migratedColumnNames.includes('raw_text'));
+    assert.ok(migratedColumnNames.includes('polished_text'));
+
+    const legacyLookup = await getCachedTranscription("legacy_unique_id");
+    assert.ok(legacyLookup !== null);
+    assert.strictEqual(legacyLookup.rawText, legacyTranscript);
+    assert.strictEqual(legacyLookup.polishedText, null);
     await closeDb();
 
     await assert.rejects(
@@ -306,39 +368,46 @@ async function runTests() {
 
   // --- Test 8: Gemini Polishing Decision Logic ---
   console.log("🧪 Test 8: Gemini Polishing Decision Logic (Toggles & Video Notes)");
-  
-  function qualifiesForPolishingLogic(
-    duration: number,
-    targetIsVoice: boolean,
-    polishEnabled: boolean,
-    polishVideo: boolean,
-    minDuration: number
-  ): boolean {
-    return polishEnabled && duration > minDuration && (targetIsVoice || polishVideo);
-  }
 
   // Case 1: Disabled globally
-  assert.strictEqual(qualifiesForPolishingLogic(50, true, false, true, 45), false);
-  assert.strictEqual(qualifiesForPolishingLogic(50, false, false, true, 45), false);
+  assert.strictEqual(shouldPolishTranscript({ duration: 50, targetIsVoice: true, polishEnabled: false, polishVideo: true, minDuration: 45 }), false);
+  assert.strictEqual(shouldPolishTranscript({ duration: 50, targetIsVoice: false, polishEnabled: false, polishVideo: true, minDuration: 45 }), false);
 
   // Case 2: Enabled globally, duration below or equal to threshold
-  assert.strictEqual(qualifiesForPolishingLogic(45, true, true, true, 45), false);
-  assert.strictEqual(qualifiesForPolishingLogic(10, true, true, true, 45), false);
+  assert.strictEqual(shouldPolishTranscript({ duration: 45, targetIsVoice: true, polishEnabled: true, polishVideo: true, minDuration: 45 }), false);
+  assert.strictEqual(shouldPolishTranscript({ duration: 10, targetIsVoice: true, polishEnabled: true, polishVideo: true, minDuration: 45 }), false);
 
   // Case 3: Voice message, above threshold
-  assert.strictEqual(qualifiesForPolishingLogic(50, true, true, false, 45), true);
-  assert.strictEqual(qualifiesForPolishingLogic(50, true, true, true, 45), true);
+  assert.strictEqual(shouldPolishTranscript({ duration: 50, targetIsVoice: true, polishEnabled: true, polishVideo: false, minDuration: 45 }), true);
+  assert.strictEqual(shouldPolishTranscript({ duration: 50, targetIsVoice: true, polishEnabled: true, polishVideo: true, minDuration: 45 }), true);
 
   // Case 4: Video note, above threshold, video polishing disabled
-  assert.strictEqual(qualifiesForPolishingLogic(50, false, true, false, 45), false);
+  assert.strictEqual(shouldPolishTranscript({ duration: 50, targetIsVoice: false, polishEnabled: true, polishVideo: false, minDuration: 45 }), false);
 
   // Case 5: Video note, above threshold, video polishing enabled
-  assert.strictEqual(qualifiesForPolishingLogic(50, false, true, true, 45), true);
+  assert.strictEqual(shouldPolishTranscript({ duration: 50, targetIsVoice: false, polishEnabled: true, polishVideo: true, minDuration: 45 }), true);
 
   console.log("   ✅ Gemini Polishing Decision Logic passed.");
 
-  // --- Test 9: User Authorization (Private Messages / DMs) ---
-  console.log("🧪 Test 9: User Authorization (Private Messages)");
+  // --- Test 9: Temp Audio Cleanup Signal ---
+  console.log("🧪 Test 9: Temp Audio Cleanup Signal");
+
+  const cleanupDir = fs.mkdtempSync(path.join(os.tmpdir(), 'telegram-stt-bot-cleanup-'));
+  try {
+    const cleanupTarget = path.join(cleanupDir, 'audio.ogg');
+    fs.writeFileSync(cleanupTarget, 'temporary audio');
+    assert.strictEqual(cleanupFile(cleanupTarget), true);
+    assert.strictEqual(fs.existsSync(cleanupTarget), false);
+    assert.strictEqual(cleanupFile(path.join(cleanupDir, 'missing.ogg')), true);
+    assert.strictEqual(cleanupFile(cleanupDir), false);
+  } finally {
+    fs.rmSync(cleanupDir, { recursive: true, force: true });
+  }
+
+  console.log("   ✅ Temp Audio Cleanup Signal passed.");
+
+  // --- Test 10: User Authorization (Private Messages / DMs) ---
+  console.log("🧪 Test 10: User Authorization (Private Messages)");
 
   // Scenario A: Allow all users must be explicit
   delete process.env.ALLOW_ALL_USERS;

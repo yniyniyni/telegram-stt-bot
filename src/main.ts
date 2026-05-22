@@ -5,7 +5,7 @@ import { Telegraf } from 'telegraf';
 import { initDb, closeDb, getCachedTranscription, cacheTranscription, updateCachedPolishedText } from './db.js';
 import { downloadTelegramFile, cleanupFile } from './audio.js';
 import { transcribeFile } from './transcriber.js';
-import { polishTranscript } from './polisher.js';
+import { polishTranscript, shouldPolishTranscript } from './polisher.js';
 import { determineMessageRouting } from './routing.js';
 import {
   getPositiveIntegerEnv,
@@ -227,14 +227,20 @@ bot.on('message', async (ctx, next) => {
     cached = await getCachedTranscription(fileUniqueId);
   } catch (err) {
     log("ERROR", `Cache lookup failed for file ${fileUniqueId}; refusing to spend transcription quota: ${safeErrorForLog(err)}`);
-    await safeReplyWithHTML(ctx, locale.transcriptionError(safeErrorForLog(err)), msg.message_id, "cache lookup error");
+    await safeReplyWithHTML(ctx, locale.transcriptionError(), msg.message_id, "cache lookup error");
     return;
   }
 
   if (cached !== null) {
     log("INFO", `Cache hit for file_unique_id: ${fileUniqueId}. Replying from database cache.`);
     
-    const qualifiesForPolishing = POLISH_ENABLED && duration > POLISH_MIN_DURATION && (targetIsVoice || POLISH_VIDEO);
+    const qualifiesForPolishing = shouldPolishTranscript({
+      polishEnabled: POLISH_ENABLED,
+      duration,
+      minDuration: POLISH_MIN_DURATION,
+      targetIsVoice,
+      polishVideo: POLISH_VIDEO
+    });
     let textToSend = (qualifiesForPolishing ? cached.polishedText : null) || cached.rawText;
     let isPolished = qualifiesForPolishing && !!cached.polishedText;
 
@@ -312,7 +318,13 @@ bot.on('message', async (ctx, next) => {
     let polishedText: string | null = null;
     let isPolished = false;
 
-    const qualifiesForPolishing = POLISH_ENABLED && duration > POLISH_MIN_DURATION && (targetIsVoice || POLISH_VIDEO);
+    const qualifiesForPolishing = shouldPolishTranscript({
+      polishEnabled: POLISH_ENABLED,
+      duration,
+      minDuration: POLISH_MIN_DURATION,
+      targetIsVoice,
+      polishVideo: POLISH_VIDEO
+    });
 
     // Handle polishing if qualifies
     if (qualifiesForPolishing) {
@@ -363,7 +375,7 @@ bot.on('message', async (ctx, next) => {
     const errorMsg = safeErrorForLog(err);
     log("ERROR", `Transcription failed for file ${fileUniqueId}: ${errorMsg}`);
     try {
-      await ctx.replyWithHTML(locale.transcriptionError(errorMsg), { reply_to_message_id: msg.message_id } as any);
+      await ctx.replyWithHTML(locale.transcriptionError(), { reply_to_message_id: msg.message_id } as any);
     } catch (sendErr) {
       log("ERROR", `Failed to send transcription error: ${safeErrorForLog(sendErr)}`);
     }
@@ -372,7 +384,10 @@ bot.on('message', async (ctx, next) => {
 
     // 1. Delete local temp file (never keep audio files on the host after completion/failure)
     if (localTempFile) {
-      cleanupFile(localTempFile);
+      const cleanupSucceeded = cleanupFile(localTempFile);
+      if (!cleanupSucceeded) {
+        log("ERROR", `TEMP_AUDIO_CLEANUP_FAILED path=${localTempFile}`);
+      }
     }
     
     // 2. Delete temporary transcribing status message if still exists
