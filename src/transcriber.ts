@@ -76,7 +76,7 @@ export async function transcribeFile(filePath: string): Promise<string> {
 
   // Build query parameters
   const params = new URLSearchParams();
-  const model = process.env.DEEPGRAM_MODEL || 'nova-2';
+  const model = process.env.DEEPGRAM_MODEL || 'nova-3';
   params.append('model', model);
 
   const useSmartFormat = (process.env.DEEPGRAM_SMART_FORMAT || 'true') === 'true';

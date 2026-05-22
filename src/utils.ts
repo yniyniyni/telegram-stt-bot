@@ -29,55 +29,6 @@ export function redactTelegramFileUrl(url: string): string {
   return url.replace(/\/bot[^/]+/g, '/bot<redacted>');
 }
 
-/**
- * Converts basic markdown formatting (headers, bold, italic, code blocks, inline code)
- * into Telegram-compatible HTML tags.
- */
-export function convertMarkdownToHTML(text: string): string {
-  if (!text) return "";
-
-  let result = text;
-  const codeBlocks: string[] = [];
-  const inlineCodes: string[] = [];
-
-  // 1. Stash code blocks: ```code```
-  result = result.replace(/```([\s\S]*?)```/g, (match, code) => {
-    codeBlocks.push(code);
-    return `@@CODE_BLOCK_PLACEHOLDER_${codeBlocks.length - 1}@@`;
-  });
-
-  // 2. Stash inline code: `code`
-  result = result.replace(/`([^`\n]+)`/g, (match, code) => {
-    inlineCodes.push(code);
-    return `@@INLINE_CODE_PLACEHOLDER_${inlineCodes.length - 1}@@`;
-  });
-
-  // 3. Bold: **text** or __text__ -> <b>text</b>
-  result = result.replace(/\*\*([^\s*](?:[^*]*?[^\s*])?)\*\*/g, '<b>$1</b>');
-  result = result.replace(/(?<![A-Za-z0-9_])__([^\s_](?:[^_]*?[^\s_])?)__(?![A-Za-z0-9_])/g, '<b>$1</b>');
-
-  // 4. Italic: *text* or _text_ -> <i>text</i>
-  result = result.replace(/(?<!\*)\*([^\s*](?:[^*]*?[^\s*])?)\*(?!\*)/g, '<i>$1</i>');
-  result = result.replace(/(?<![A-Za-z0-9_])_([^\s_](?:[^_]*?[^\s_])?)_(?![A-Za-z0-9_])/g, '<i>$1</i>');
-
-  // 5. Headers: ^###+ header -> <b>header</b>
-  result = result.replace(/^[ \t]*#+[ \t]+(.+)$/gm, '<b>$1</b>');
-
-  // 6. Restore inline code
-  result = result.replace(/@@INLINE_CODE_PLACEHOLDER_(\d+)@@/g, (match, index) => {
-    const code = inlineCodes[parseInt(index, 10)];
-    return `<code>${escapeHTML(code)}</code>`;
-  });
-
-  // 7. Restore code blocks
-  result = result.replace(/@@CODE_BLOCK_PLACEHOLDER_(\d+)@@/g, (match, index) => {
-    const code = codeBlocks[parseInt(index, 10)];
-    return `<pre>${escapeHTML(code)}</pre>`;
-  });
-
-  return result;
-}
-
 function convertBasicMarkdownToHTML(text: string): string {
   let result = text;
   result = result.replace(/\*\*([^\s*](?:[^*]*?[^\s*])?)\*\*/g, '<b>$1</b>');

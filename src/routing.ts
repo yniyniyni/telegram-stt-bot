@@ -18,7 +18,6 @@ export type MessageRoutingDecision =
       isVideoNote: boolean;
       isDirectAppeal: boolean;
       shouldTranscribeReplied: boolean;
-      targetMsg: any;
       targetIsVoice: boolean;
       fileId: string;
       fileUniqueId: string;
@@ -68,7 +67,6 @@ export function determineMessageRouting(msg: any, options: RoutingOptions): Mess
     isVideoNote,
     isDirectAppeal,
     shouldTranscribeReplied,
-    targetMsg,
     targetIsVoice,
     fileId: media.file_id,
     fileUniqueId: media.file_unique_id,

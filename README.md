@@ -2,7 +2,7 @@
 
 [Русская версия (Russian Version)](docs/README_ru.md)
 
-An automated Speech-to-Text (STT) Telegram bot built using **Node.js**, **TypeScript**, **SQLite**, and the **Deepgram API** (Nova-2 model). 
+An automated Speech-to-Text (STT) Telegram bot built using **Node.js**, **TypeScript**, **SQLite**, and the **Deepgram API** (Nova-3 model). 
 
 It automatically transcribes voice messages and video notes (circles) in authorized Telegram chats, provides intelligent caching to reduce API costs, and strictly ignores all unrelated messages to preserve privacy.
 
@@ -18,7 +18,7 @@ It automatically transcribes voice messages and video notes (circles) in authori
 - **Smart Formatting**: Integrates Deepgram's `smart_format`, `punctuate`, and `numerals` configurations to automatically format punctuation, paragraphs, dates, numbers, and currency for readability.
 - **Multilingual Support**: Bot UI and headers support both Russian (`ru`) and English (`en`) based on `BOT_LANGUAGE`.
 - **HTML Message Splitting**: Sanitizes and splits long transcripts into chunks of under 4000 characters to prevent Telegram API errors while keeping HTML tags balanced.
-- **AI-Powered Polishing (Gemini)**: Integrates Gemini AI (`gemini-3.1-flash-lite` by default) to polish long transcripts (default >45s). It automatically corrects spelling, grammar, removes verbal fillers, and fixes misrecognized words using context while preserving the exact word order and original meaning.
+- **AI-Powered Polishing (Gemini)**: Optionally integrates Gemini AI (`gemini-3.1-flash-lite` by default) to polish long transcripts (default >45s). It can correct spelling, grammar, remove verbal fillers, and fix misrecognized words using context while preserving the original intent as much as possible.
 - **Granular Polishing Controls**: Flexible configuration options to turn off polishing completely or disable it specifically for video messages (video notes / circles) via `.env` toggles.
 
 ---
@@ -29,7 +29,7 @@ It automatically transcribes voice messages and video notes (circles) in authori
 - **Runtime**: Node.js (v20.17.0+)
 - **Framework**: Telegraf (Telegram Bot API wrapper)
 - **Database**: SQLite (via `sqlite` and `sqlite3` packages)
-- **STT Engine**: Deepgram REST API (Nova-2 model)
+- **STT Engine**: Deepgram REST API (Nova-3 model)
 - **AI Polisher**: Google Gemini API (via `@google/genai` SDK)
 
 ---
@@ -80,7 +80,7 @@ Refer to [.env.example](.env.example) for details:
 
 - `TELEGRAM_BOT_TOKEN`: Your Telegram Bot Token.
 - `DEEPGRAM_API_KEY`: Your Deepgram API Token.
-- `DEEPGRAM_MODEL`: The Deepgram model to use (default: `nova-2`).
+- `DEEPGRAM_MODEL`: The Deepgram model to use (default: `nova-3`).
 - `DEEPGRAM_SMART_FORMAT`: Toggle formatting features (default: `true`).
 - `ALLOW_ALL_CHATS`: If set to `true`, anyone can use the bot in group/supergroup chats. If `false`, only chats in `ALLOWED_CHATS` are whitelisted (default: `false`).
 - `ALLOWED_CHATS`: Comma-separated Telegram Chat IDs (e.g. `-100123456789,987654321`).
@@ -96,7 +96,7 @@ Refer to [.env.example](.env.example) for details:
 - `DEEPGRAM_TIMEOUT_MS`: Timeout for Deepgram API calls.
 - `DB_FILE`: Path to SQLite database file.
 - `DEBUG`: Turn on detailed debug logging.
-- `GEMINI_POLISH_ENABLED`: Set to `false` to completely disable Gemini polishing (default: `true`).
+- `GEMINI_POLISH_ENABLED`: Set to `true` to enable Gemini polishing (default: `false`).
 - `GEMINI_POLISH_VIDEO`: Set to `false` to disable Gemini polishing specifically for video messages (default: `true`).
 - `GEMINI_API_KEY`: Your Google Gemini API key.
 - `GEMINI_MODEL`: Gemini model name (default: `gemini-3.1-flash-lite`).
@@ -107,7 +107,7 @@ Refer to [.env.example](.env.example) for details:
 ## Privacy Notes
 
 - SQLite transcript cache is plaintext by default. Protect `DB_FILE` with strict filesystem permissions, backups policy, and disk/filesystem encryption when transcripts may contain sensitive data.
-- Gemini polishing is optional third-party processing. When `GEMINI_POLISH_ENABLED=true`, eligible transcript text is sent to Google's Gemini API for polishing; set it to `false` if transcripts must stay within Telegram, your host, and Deepgram only.
+- Gemini polishing is optional third-party processing and is disabled by default. When `GEMINI_POLISH_ENABLED=true`, eligible transcript text is sent to Google's Gemini API for polishing; keep it `false` if transcripts must stay within Telegram, your host, and Deepgram only.
 
 ---
 

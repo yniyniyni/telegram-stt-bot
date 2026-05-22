@@ -23,12 +23,18 @@ const ruLocale: Locales = {
   chatNotAuthorized: "⚠️ Этот чат не авторизован для использования бота.",
   rateLimited: (retryAfter) => `⚠️ Превышен лимит запросов. Пожалуйста, подождите ${retryAfter} сек. перед следующей попыткой.`,
   welcomeMessage: (botUsername) =>
+    (() => {
+      const escapedBotUsername = escapeHTML(botUsername);
+      return (
     `👋 <b>Привет! Я бот для автоматической расшифровки голосовых сообщений и видеокружков.</b>\n\n` +
     `Я могу работать как в личных сообщениях, так и в группах:\n` +
     `1. Добавьте меня в группу.\n` +
     `2. Дайте доступ к сообщениям (сделайте администратором или отключите Group Privacy у @BotFather).\n` +
-    `3. Отправьте голосовое сообщение или видеокружок, и я автоматически пришлю расшифровку!\n\n` +
-    `<i>Обратите внимание: чат должен быть добавлен в белый список ALLOWED_CHATS в конфигурации бота.</i>`,
+    `3. Отправьте голосовое сообщение или видеокружок, и я автоматически пришлю расшифровку!\n` +
+    `4. В группах можно обратиться ко мне: @${escapedBotUsername} /help\n\n` +
+    `<i>Обратите внимание: чат должен быть добавлен в белый список ALLOWED_CHATS в конфигурации бота.</i>`
+      );
+    })(),
   helpMessage: (botUsername) =>
     `ℹ️ <b>Как пользоваться ботом:</b>\n\n` +
     `• Просто отправьте голосовое сообщение (voice) или видеокружок (video note) в этот чат — я автоматически расшифрую его и пришлю текст.\n` +
@@ -67,12 +73,18 @@ const enLocale: Locales = {
   chatNotAuthorized: "⚠️ This chat is not authorized to use this bot.",
   rateLimited: (retryAfter) => `⚠️ Rate limit exceeded. Please wait ${retryAfter}s before trying again.`,
   welcomeMessage: (botUsername) =>
+    (() => {
+      const escapedBotUsername = escapeHTML(botUsername);
+      return (
     `👋 <b>Hello! I am a bot that automatically transcribes voice messages and video notes.</b>\n\n` +
     `I can work in private chats and groups:\n` +
     `1. Add me to a group.\n` +
     `2. Give me access to messages (make me an admin or disable Group Privacy via @BotFather).\n` +
-    `3. Send a voice message or a video note, and I will automatically reply with the transcription!\n\n` +
-    `<i>Note: the chat must be whitelisted in ALLOWED_CHATS in the bot configuration.</i>`,
+    `3. Send a voice message or a video note, and I will automatically reply with the transcription!\n` +
+    `4. In groups, you can mention me: @${escapedBotUsername} /help\n\n` +
+    `<i>Note: the chat must be whitelisted in ALLOWED_CHATS in the bot configuration.</i>`
+      );
+    })(),
   helpMessage: (botUsername) =>
     `ℹ️ <b>How to use the bot:</b>\n\n` +
     `• Simply send a voice message or a video note to this chat — I will automatically transcribe it.\n` +

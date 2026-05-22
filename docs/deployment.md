@@ -71,8 +71,8 @@ TELEGRAM_BOT_TOKEN=your_real_telegram_bot_token
 # Deepgram API Key (from console.deepgram.com)
 DEEPGRAM_API_KEY=your_real_deepgram_api_key
 
-# Deepgram transcription model (e.g. nova-2, nova-2-meeting, etc. Default: nova-2)
-DEEPGRAM_MODEL=nova-2
+# Deepgram transcription model (e.g. nova-3, nova-2, etc. Default: nova-3)
+DEEPGRAM_MODEL=nova-3
 
 # Smart Format improves readability by applying additional formatting.
 DEEPGRAM_SMART_FORMAT=true
@@ -119,8 +119,8 @@ DB_FILE=/opt/telegram-stt-bot/data/db.sqlite
 DEBUG=false
 
 # Gemini API Integration (For polishing transcripts > 45s)
-# Set to 'false' to disable Gemini polishing functionality completely.
-GEMINI_POLISH_ENABLED=true
+# Set to 'true' to enable Gemini polishing functionality.
+GEMINI_POLISH_ENABLED=false
 # Set to 'false' to disable Gemini polishing specifically for video messages (video notes).
 GEMINI_POLISH_VIDEO=true
 # Gemini API Key (from Google AI Studio).
@@ -220,4 +220,4 @@ If you configured `DEBUG=true` in `.env`, debug messages will also be visible he
 ## Privacy & Data Handling
 
 - The SQLite database stores transcript text in plaintext by default. Use strict ownership, `UMask=0077`, restricted backups, and disk/filesystem encryption if transcripts may contain sensitive data.
-- Gemini polishing is optional third-party processing. When `GEMINI_POLISH_ENABLED=true`, eligible transcript text is sent to Google's Gemini API; set it to `false` to disable that extra processing path.
+- Gemini polishing is optional third-party processing and is disabled by default. When `GEMINI_POLISH_ENABLED=true`, eligible transcript text is sent to Google's Gemini API; keep it `false` to disable that extra processing path.
