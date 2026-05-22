@@ -157,12 +157,11 @@ export function sanitizeHTML(input: string): string {
             return escapeHTML(part);
           }
           if (isClose) {
-            const lastIdx = openTags.lastIndexOf(tagName);
-            if (lastIdx !== -1) {
-              openTags.splice(lastIdx, 1);
+            if (openTags[openTags.length - 1] === tagName) {
+              openTags.pop();
               return `</${tagName}>`;
             }
-            return "";
+            return escapeHTML(part);
           } else {
             if (openTags.includes(tagName)) {
               return "";
@@ -319,11 +318,11 @@ let cachedAllowedUsersRaw: string | undefined = undefined;
 
 /**
  * Validates if the user is authorized to use the bot in private messages (DMs) based on .env whitelist.
- * If ALLOW_ALL_USERS is not 'false' (default true), all users are allowed.
+ * If ALLOW_ALL_USERS is 'true', all users are allowed.
  * Otherwise, checks the sender's userId against the ALLOWED_USERS comma-separated list.
  */
 export function isUserAuthorized(userId: number): boolean {
-  if (process.env.ALLOW_ALL_USERS !== 'false') {
+  if (process.env.ALLOW_ALL_USERS === 'true') {
     return true;
   }
 

@@ -28,6 +28,12 @@ class ByteLimitTransform extends Transform {
   }
 }
 
+function ensurePrivateDirectory(dir: string): void {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  }
+}
+
 /**
  * Downloads a file from a URL to a local destination directory.
  * Uses native fetch and stream pipeline for memory-efficient downloads.
@@ -38,10 +44,7 @@ export async function downloadTelegramFile(fileLink: string, options: DownloadTe
   const timeoutMs = options.timeoutMs ?? getPositiveIntegerEnv('TELEGRAM_DOWNLOAD_TIMEOUT_MS', 60_000);
   const maxBytes = options.maxBytes ?? getPositiveIntegerEnv('MAX_TELEGRAM_FILE_BYTES', 50 * 1024 * 1024);
 
-  // Ensure the destination directory exists
-  if (!fs.existsSync(destDir)) {
-    fs.mkdirSync(destDir, { recursive: true });
-  }
+  ensurePrivateDirectory(destDir);
 
   // Parse file extension from the URL (e.g., .ogg or .mp4)
   const urlObj = new URL(fileLink);
@@ -77,7 +80,7 @@ export async function downloadTelegramFile(fileLink: string, options: DownloadTe
 
   // Cast body to any to avoid TypeScript compatibility issue between web streams and node streams
   const readable = Readable.fromWeb(response.body as any);
-  const writeStream = fs.createWriteStream(destPath);
+  const writeStream = fs.createWriteStream(destPath, { mode: 0o600 });
 
   try {
     await pipeline(readable, new ByteLimitTransform(maxBytes), writeStream);

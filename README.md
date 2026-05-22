@@ -12,8 +12,8 @@ It automatically transcribes voice messages and video notes (circles) in authori
 
 - **Automated STT**: Transcribes voice messages (`.ogg`) and video notes (`.mp4` circles) automatically when sent to the chat.
 - **Direct Video Note Transcription**: Transcribes video notes directly through the Deepgram API without needing local `ffmpeg` system binary extraction on the host.
-- **Strict Privacy**: No messages are saved in the database other than voice/video-note metadata and their text transcripts. Audio files are deleted from the host immediately after transcription.
-- **Fail-Closed Authorization**: A whitelist-based access control checking `ALLOWED_CHATS` in `.env` to prevent unauthorized usage and protect API budgets.
+- **Strict Privacy**: No messages are saved in the database other than voice/video-note metadata and their text transcripts. Audio files are deleted from the host immediately after transcription. Note that SQLite stores transcripts in plaintext unless you add filesystem or disk encryption.
+- **Fail-Closed Authorization**: Whitelist-based access control checks `ALLOWED_CHATS` for chats and `ALLOWED_USERS` for DMs. `ALLOW_ALL_CHATS=false` and `ALLOW_ALL_USERS=false` keep the bot closed by default unless you explicitly open access.
 - **Rate Limiting**: Custom rolling-window rate-limiting per chat to block spam and DOS attacks.
 - **Smart Formatting**: Integrates Deepgram's `smart_format`, `punctuate`, and `numerals` configurations to automatically format punctuation, paragraphs, dates, numbers, and currency for readability.
 - **Multilingual Support**: Bot UI and headers support both Russian (`ru`) and English (`en`) based on `BOT_LANGUAGE`.
@@ -37,6 +37,11 @@ It automatically transcribes voice messages and video notes (circles) in authori
 ## Deployment
 
 For production deployments on Linux servers (Debian, Ubuntu, AlmaLinux, Rocky Linux) running as a system service (systemd), please refer to the [Linux Deployment Guide](docs/deployment.md) (also available in [Russian version](docs/deployment_ru.md)).
+
+After dependency or code changes in production, reinstall locked dependencies and rebuild before restarting the service:
+```bash
+npm ci && npm run build
+```
 
 ---
 
@@ -77,9 +82,9 @@ Refer to [.env.example](.env.example) for details:
 - `DEEPGRAM_API_KEY`: Your Deepgram API Token.
 - `DEEPGRAM_MODEL`: The Deepgram model to use (default: `nova-2`).
 - `DEEPGRAM_SMART_FORMAT`: Toggle formatting features (default: `true`).
-- `ALLOW_ALL_CHATS`: If set to `true`, anyone can use the bot. If `false`, only chats in `ALLOWED_CHATS` are whitelisted.
+- `ALLOW_ALL_CHATS`: If set to `true`, anyone can use the bot in group/supergroup chats. If `false`, only chats in `ALLOWED_CHATS` are whitelisted (default: `false`).
 - `ALLOWED_CHATS`: Comma-separated Telegram Chat IDs (e.g. `-100123456789,987654321`).
-- `ALLOW_ALL_USERS`: If set to `true`, anyone can message the bot in private messages (DMs). If `false`, only user IDs in `ALLOWED_USERS` are allowed (default: `false`).
+- `ALLOW_ALL_USERS`: Fail-closed DM access toggle. If set to `true`, anyone can message the bot in private messages (DMs). If `false` or unset, only user IDs in `ALLOWED_USERS` are allowed (default: `false`).
 - `ALLOWED_USERS`: Comma-separated Telegram User IDs allowed to use the bot in private messages (DMs).
 - `RATE_LIMIT_MAX_REQUESTS`: Max transcriptions allowed within the rolling window.
 - `RATE_LIMIT_WINDOW_SEC`: Rolling window duration in seconds.
@@ -98,6 +103,11 @@ Refer to [.env.example](.env.example) for details:
 - `GEMINI_TIMEOUT_MS`: Timeout for Gemini polishing calls.
 - `GEMINI_MAX_OUTPUT_TOKENS`: Max Gemini output tokens for polished transcript.
 - `POLISH_MIN_DURATION_SEC`: Minimum audio duration in seconds to trigger polishing (default: `45`).
+
+## Privacy Notes
+
+- SQLite transcript cache is plaintext by default. Protect `DB_FILE` with strict filesystem permissions, backups policy, and disk/filesystem encryption when transcripts may contain sensitive data.
+- Gemini polishing is optional third-party processing. When `GEMINI_POLISH_ENABLED=true`, eligible transcript text is sent to Google's Gemini API for polishing; set it to `false` if transcripts must stay within Telegram, your host, and Deepgram only.
 
 ---
 

@@ -13,6 +13,35 @@ interface DeepgramResponse {
   };
 }
 
+function describeJsonShape(value: unknown, depth = 0): unknown {
+  if (value === null) {
+    return 'null';
+  }
+  if (Array.isArray(value)) {
+    if (depth >= 3) {
+      return `array(${value.length})`;
+    }
+    return {
+      type: 'array',
+      length: value.length,
+      itemShape: value.length > 0 ? describeJsonShape(value[0], depth + 1) : 'empty',
+    };
+  }
+  if (typeof value === 'object') {
+    if (depth >= 3) {
+      return 'object';
+    }
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, nestedValue]) => [
+        key,
+        describeJsonShape(nestedValue, depth + 1),
+      ])
+    );
+  }
+
+  return typeof value;
+}
+
 /**
  * Transcribes an audio/video file using the Deepgram REST API.
  * Returns the transcribed text string.
@@ -94,7 +123,7 @@ export async function transcribeFile(filePath: string): Promise<string> {
   // Extract transcript
   const transcript = data.results?.channels?.[0]?.alternatives?.[0]?.transcript;
   if (transcript === undefined) {
-    log("WARN", `Deepgram returned response but no transcript structure: ${JSON.stringify(data)}`);
+    log("WARN", `Deepgram returned response but no transcript structure. Response shape: ${JSON.stringify(describeJsonShape(data))}`);
     return "";
   }
 

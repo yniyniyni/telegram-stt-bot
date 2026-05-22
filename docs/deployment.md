@@ -53,8 +53,8 @@ cd /opt/telegram-stt-bot
 # Change folder ownership to your current non-root user
 sudo chown -R $USER:$USER /opt/telegram-stt-bot
 
-# Install packages
-npm install
+# Install packages exactly as pinned in package-lock.json
+npm ci
 ```
 
 ### 2. Configure Environment Variables
@@ -78,12 +78,13 @@ DEEPGRAM_MODEL=nova-2
 DEEPGRAM_SMART_FORMAT=true
 
 # Access Control
-# Set to 'true' to allow any chat/user. Set to 'false' to enforce ALLOWED_CHATS whitelist.
+# Fail-closed default: keep false unless you intentionally allow all group/supergroup chats.
 ALLOW_ALL_CHATS=false
 # Comma-separated list of Telegram Chat IDs allowed to use the bot
 ALLOWED_CHATS=-100123456789,987654321
 
-# Set to 'true' to allow any user to message the bot in private messages (DMs).
+# Fail-closed default: keep false unless you intentionally allow all private-message users.
+# When false or unset, only ALLOWED_USERS can use the bot in DMs.
 ALLOW_ALL_USERS=false
 ALLOWED_USERS=
 
@@ -140,6 +141,11 @@ Compile TypeScript sources to JavaScript:
 npm run build
 ```
 
+After every dependency or code change, run the production install and build again before restarting the service:
+```bash
+npm ci && npm run build
+```
+
 Verify that the compiled JavaScript files are present in the `dist` folder:
 ```bash
 ls dist/
@@ -173,6 +179,7 @@ ExecStart=/usr/bin/node dist/main.js
 Restart=always
 RestartSec=10
 Environment=NODE_ENV=production
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target
@@ -180,6 +187,8 @@ WantedBy=multi-user.target
 
 > [!NOTE]
 > If you don't know your user or node path, you can run `whoami` and `which node` to verify.
+
+`UMask=0077` makes files created by the service readable only by the service user. This helps protect `.env`, logs, temporary files, and the SQLite database from other local users.
 
 ### 2. Enable and Start the Service
 
@@ -207,3 +216,8 @@ sudo journalctl -u telegram-stt-bot -f -o cat
 ```
 
 If you configured `DEBUG=true` in `.env`, debug messages will also be visible here.
+
+## Privacy & Data Handling
+
+- The SQLite database stores transcript text in plaintext by default. Use strict ownership, `UMask=0077`, restricted backups, and disk/filesystem encryption if transcripts may contain sensitive data.
+- Gemini polishing is optional third-party processing. When `GEMINI_POLISH_ENABLED=true`, eligible transcript text is sent to Google's Gemini API; set it to `false` to disable that extra processing path.

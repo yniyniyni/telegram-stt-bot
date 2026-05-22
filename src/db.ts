@@ -5,6 +5,38 @@ import { open, Database } from 'sqlite';
 import { log } from './utils.js';
 
 let db: Database | null = null;
+const REQUIRED_TRANSCRIPTION_COLUMNS = [
+  'file_unique_id',
+  'chat_id',
+  'user_id',
+  'audio_duration',
+  'transcription_text',
+  'timestamp',
+  'raw_text',
+  'polished_text'
+];
+
+async function getTranscriptionColumns(database: Database): Promise<string[]> {
+  const tableInfo = await database.all<{ name: string }[]>(`PRAGMA table_info(transcriptions);`);
+  return tableInfo.map((col: any) => col.name);
+}
+
+function assertTranscriptionsSchema(columns: string[]): void {
+  const missing = REQUIRED_TRANSCRIPTION_COLUMNS.filter((column) => !columns.includes(column));
+  if (missing.length > 0) {
+    throw new Error(`Transcriptions table is missing required columns: ${missing.join(', ')}`);
+  }
+}
+
+function ensurePrivateDirectory(dir: string): void {
+  if (dir === '.' || dir === '') {
+    return;
+  }
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    log("INFO", `Created database directory: ${dir}`);
+  }
+}
 
 /**
  * Initializes the SQLite database.
@@ -16,11 +48,7 @@ export async function initDb(): Promise<Database> {
   const dbPath = process.env.DB_FILE || 'data/db.sqlite';
   const dbDir = path.dirname(dbPath);
 
-  // Ensure directory exists
-  if (!fs.existsSync(dbDir)) {
-    fs.mkdirSync(dbDir, { recursive: true });
-    log("INFO", `Created database directory: ${dbDir}`);
-  }
+  ensurePrivateDirectory(dbDir);
 
   log("INFO", `Initializing database at: ${dbPath}`);
   
@@ -28,6 +56,11 @@ export async function initDb(): Promise<Database> {
     filename: dbPath,
     driver: sqlite3.Database
   });
+  try {
+    fs.chmodSync(dbPath, 0o600);
+  } catch (err) {
+    log("WARN", `Failed to set private permissions on database file ${dbPath}:`, err);
+  }
 
   // Create transcriptions table (caching transcripts by Telegram's file_unique_id)
   await db.exec(`
@@ -41,24 +74,20 @@ export async function initDb(): Promise<Database> {
     );
   `);
 
-  // Migrate schema to add raw_text and polished_text if they are missing
-  try {
-    const tableInfo = await db.all(`PRAGMA table_info(transcriptions);`);
-    const columns = tableInfo.map((col: any) => col.name);
-    
-    if (!columns.includes('raw_text')) {
-      log("INFO", "Migrating database: Adding raw_text column to transcriptions table...");
-      await db.exec(`ALTER TABLE transcriptions ADD COLUMN raw_text TEXT;`);
-      // Copy existing transcription_text to raw_text
-      await db.exec(`UPDATE transcriptions SET raw_text = transcription_text;`);
-    }
-    if (!columns.includes('polished_text')) {
-      log("INFO", "Migrating database: Adding polished_text column to transcriptions table...");
-      await db.exec(`ALTER TABLE transcriptions ADD COLUMN polished_text TEXT;`);
-    }
-  } catch (err) {
-    log("ERROR", "Database schema migration failed:", err);
+  let columns = await getTranscriptionColumns(db);
+
+  if (!columns.includes('raw_text')) {
+    log("INFO", "Migrating database: Adding raw_text column to transcriptions table...");
+    await db.exec(`ALTER TABLE transcriptions ADD COLUMN raw_text TEXT;`);
+    await db.exec(`UPDATE transcriptions SET raw_text = transcription_text;`);
   }
+  if (!columns.includes('polished_text')) {
+    log("INFO", "Migrating database: Adding polished_text column to transcriptions table...");
+    await db.exec(`ALTER TABLE transcriptions ADD COLUMN polished_text TEXT;`);
+  }
+
+  columns = await getTranscriptionColumns(db);
+  assertTranscriptionsSchema(columns);
 
   log("INFO", "Database tables initialized successfully.");
   return db;
@@ -126,6 +155,7 @@ export async function cacheTranscription(
     log("DEBUG", `Successfully cached transcription for file_unique_id: ${fileUniqueId}`);
   } catch (err) {
     log("ERROR", `Failed to cache transcription for ${fileUniqueId}:`, err);
+    throw err;
   }
 }
 
@@ -145,6 +175,7 @@ export async function updateCachedPolishedText(
     log("DEBUG", `Successfully updated polished text cache for file_unique_id: ${fileUniqueId}`);
   } catch (err) {
     log("ERROR", `Failed to update polished text cache for ${fileUniqueId}:`, err);
+    throw err;
   }
 }
 

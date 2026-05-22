@@ -1,7 +1,8 @@
 import assert from 'assert';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
-import { initDb, closeDb, getCachedTranscription, cacheTranscription } from '../src/db.js';
+import { initDb, closeDb, getCachedTranscription, cacheTranscription, updateCachedPolishedText } from '../src/db.js';
 import {
   escapeHTML,
   sanitizeHTML,
@@ -32,6 +33,9 @@ async function runTests() {
 
   const nestedCodeTags = sanitizeHTML("<code><b>x</b></code>");
   assert.strictEqual(nestedCodeTags, "<code>&lt;b&gt;x&lt;/b&gt;</code>");
+
+  const crossingTags = sanitizeHTML("<b><i>x</b>y</i>");
+  assert.strictEqual(crossingTags, "<b><i>x&lt;/b&gt;y</i></b>");
   console.log("   ✅ HTML Escaping and Sanitizing passed.");
 
   // --- Test 2: HTML Splitting ---
@@ -95,47 +99,64 @@ async function runTests() {
 
   // --- Test 5: Database Caching ---
   console.log("🧪 Test 5: Database Caching");
-  const testDbFile = "data/test_db.sqlite";
-  if (fs.existsSync(testDbFile)) {
-    fs.unlinkSync(testDbFile);
-  }
-  process.env.DB_FILE = testDbFile;
+  const originalDbFile = process.env.DB_FILE;
+  const testDbDir = fs.mkdtempSync(path.join(os.tmpdir(), 'telegram-stt-bot-test-'));
+  const testDbFile = path.join(testDbDir, 'test_db.sqlite');
+  const legacyDbFile = path.join(testDbDir, 'test_legacy_db.sqlite');
 
-  await initDb();
-  
-  const fileUniqueId = "test_unique_id_123";
-  const chatId = 777;
-  const userId = 888;
-  const duration = 15;
-  const transcript = "This is a cached speech-to-text response.";
+  try {
+    process.env.DB_FILE = testDbFile;
+    await initDb();
+    assert.strictEqual(fs.statSync(testDbFile).mode & 0o777, 0o600);
 
-  // Verify not cached yet
-  const firstLookup = await getCachedTranscription(fileUniqueId);
-  assert.strictEqual(firstLookup, null);
+    const fileUniqueId = "test_unique_id_123";
+    const chatId = 777;
+    const userId = 888;
+    const duration = 15;
+    const transcript = "This is a cached speech-to-text response.";
 
-  // Cache raw only
-  await cacheTranscription(fileUniqueId, chatId, userId, duration, transcript);
+    // Verify not cached yet
+    const firstLookup = await getCachedTranscription(fileUniqueId);
+    assert.strictEqual(firstLookup, null);
 
-  // Retrieve raw only
-  const secondLookup = await getCachedTranscription(fileUniqueId);
-  assert.ok(secondLookup !== null);
-  assert.strictEqual(secondLookup.rawText, transcript);
-  assert.strictEqual(secondLookup.polishedText, null);
+    // Cache raw only
+    await cacheTranscription(fileUniqueId, chatId, userId, duration, transcript);
 
-  // Cache raw and polished
-  const polishedTranscript = "This is a polished speech-to-text response.";
-  await cacheTranscription(fileUniqueId, chatId, userId, duration, transcript, polishedTranscript);
+    // Retrieve raw only
+    const secondLookup = await getCachedTranscription(fileUniqueId);
+    assert.ok(secondLookup !== null);
+    assert.strictEqual(secondLookup.rawText, transcript);
+    assert.strictEqual(secondLookup.polishedText, null);
 
-  // Retrieve raw and polished
-  const thirdLookup = await getCachedTranscription(fileUniqueId);
-  assert.ok(thirdLookup !== null);
-  assert.strictEqual(thirdLookup.rawText, transcript);
-  assert.strictEqual(thirdLookup.polishedText, polishedTranscript);
+    // Cache raw and polished
+    const polishedTranscript = "This is a polished speech-to-text response.";
+    await cacheTranscription(fileUniqueId, chatId, userId, duration, transcript, polishedTranscript);
 
-  // Close and clean up test db file
-  await closeDb();
-  if (fs.existsSync(testDbFile)) {
-    fs.unlinkSync(testDbFile);
+    // Retrieve raw and polished
+    const thirdLookup = await getCachedTranscription(fileUniqueId);
+    assert.ok(thirdLookup !== null);
+    assert.strictEqual(thirdLookup.rawText, transcript);
+    assert.strictEqual(thirdLookup.polishedText, polishedTranscript);
+
+    const updatedPolishedTranscript = "Updated polished response.";
+    await updateCachedPolishedText(fileUniqueId, updatedPolishedTranscript);
+    const fourthLookup = await getCachedTranscription(fileUniqueId);
+    assert.ok(fourthLookup !== null);
+    assert.strictEqual(fourthLookup.polishedText, updatedPolishedTranscript);
+
+    await closeDb();
+
+    process.env.DB_FILE = legacyDbFile;
+    await initDb();
+    await closeDb();
+  } finally {
+    await closeDb();
+    if (originalDbFile === undefined) {
+      delete process.env.DB_FILE;
+    } else {
+      process.env.DB_FILE = originalDbFile;
+    }
+    fs.rmSync(testDbDir, { recursive: true, force: true });
   }
   console.log("   ✅ Database Caching passed.");
 
@@ -314,16 +335,21 @@ async function runTests() {
   // --- Test 9: User Authorization (Private Messages / DMs) ---
   console.log("🧪 Test 9: User Authorization (Private Messages)");
 
-  // Scenario A: Allow all users is default (or true)
+  // Scenario A: Allow all users must be explicit
+  delete process.env.ALLOW_ALL_USERS;
+  delete process.env.ALLOWED_USERS;
+  assert.strictEqual(isUserAuthorized(11111), false);
+
+  // Scenario B: Allow all users is true
   process.env.ALLOW_ALL_USERS = "true";
   delete process.env.ALLOWED_USERS;
   assert.strictEqual(isUserAuthorized(11111), true);
 
-  // Scenario B: Allow all users is false, whitelist empty
+  // Scenario C: Allow all users is false, whitelist empty
   process.env.ALLOW_ALL_USERS = "false";
   assert.strictEqual(isUserAuthorized(11111), false);
 
-  // Scenario C: Allow all users is false, whitelist has values
+  // Scenario D: Allow all users is false, whitelist has values
   process.env.ALLOW_ALL_USERS = "false";
   process.env.ALLOWED_USERS = "11111, 22222";
   assert.strictEqual(isUserAuthorized(11111), true);

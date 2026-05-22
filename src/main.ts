@@ -34,6 +34,10 @@ if (!deepgramApiKey) {
 // Initialize Telegraf Bot
 const bot = new Telegraf(botToken);
 
+bot.catch((err) => {
+  log("ERROR", `Unhandled bot error: ${safeErrorForLog(err)}`);
+});
+
 // Safety limits
 const MAX_DURATION = getPositiveIntegerEnv('MAX_AUDIO_DURATION_SEC', 600);
 const POLISH_MIN_DURATION = getPositiveIntegerEnv('POLISH_MIN_DURATION_SEC', 45);
@@ -170,20 +174,20 @@ bot.on('message', async (ctx, next) => {
     if ('text' in msg) {
       const text = msg.text || '';
       const botUsername = ctx.botInfo.username;
-      
+
       // Check if it's a standard command
       if (text.startsWith('/start') || text.includes(`@${botUsername} /start`)) {
-        await ctx.replyWithHTML(locale.welcomeMessage(botUsername));
+        await safeReplyWithHTML(ctx, locale.welcomeMessage(botUsername), msg.message_id, "welcome message");
         return;
       }
       if (text.startsWith('/help') || text.includes(`@${botUsername} /help`)) {
-        await ctx.replyWithHTML(locale.helpMessage(botUsername));
+        await safeReplyWithHTML(ctx, locale.helpMessage(botUsername), msg.message_id, "help message");
         return;
       }
-      
+
       // Friendly response for other text appeals (only in private messages)
       if (isPrivate) {
-        await ctx.replyWithHTML(locale.unknownCommand);
+        await safeReplyWithHTML(ctx, locale.unknownCommand, msg.message_id, "unknown command");
       }
     }
     return;
@@ -398,7 +402,7 @@ async function sendTranscriptionResult(
   const msg = ctx.message;
   
   if (!rawText.trim()) {
-    await ctx.replyWithHTML(locale.emptyTranscription, { reply_to_message_id: msg.message_id } as any);
+    await safeReplyWithHTML(ctx, locale.emptyTranscription, msg.message_id, "empty transcription");
     return;
   }
 
@@ -420,8 +424,30 @@ async function sendTranscriptionResult(
   // Split into chunks if necessary (Telegram character limit is 4096)
   const chunks = splitHTMLText(fullHTML, 4000, false);
 
-  for (const chunk of chunks) {
-    await ctx.replyWithHTML(chunk, { reply_to_message_id: msg.message_id } as any);
+  for (let i = 0; i < chunks.length; i++) {
+    const sent = await safeReplyWithHTML(ctx, chunks[i], msg.message_id, `transcription chunk ${i + 1}/${chunks.length}`);
+    if (!sent) {
+      break;
+    }
+  }
+}
+
+async function safeReplyWithHTML(
+  ctx: any,
+  html: string,
+  replyToMessageId: number | undefined,
+  description: string
+): Promise<boolean> {
+  try {
+    if (replyToMessageId !== undefined) {
+      await ctx.replyWithHTML(html, { reply_to_message_id: replyToMessageId } as any);
+    } else {
+      await ctx.replyWithHTML(html);
+    }
+    return true;
+  } catch (err) {
+    log("ERROR", `Failed to send ${description}: ${safeErrorForLog(err)}`);
+    return false;
   }
 }
 
