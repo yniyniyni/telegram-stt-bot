@@ -79,18 +79,24 @@ Refer to [.env.example](.env.example) for details:
 - `DEEPGRAM_SMART_FORMAT`: Toggle formatting features (default: `true`).
 - `ALLOW_ALL_CHATS`: If set to `true`, anyone can use the bot. If `false`, only chats in `ALLOWED_CHATS` are whitelisted.
 - `ALLOWED_CHATS`: Comma-separated Telegram Chat IDs (e.g. `-100123456789,987654321`).
-- `ALLOW_ALL_USERS`: If set to `true`, anyone can message the bot in private messages (DMs). If `false`, only user IDs in `ALLOWED_USERS` are allowed (default: `true`).
+- `ALLOW_ALL_USERS`: If set to `true`, anyone can message the bot in private messages (DMs). If `false`, only user IDs in `ALLOWED_USERS` are allowed (default: `false`).
 - `ALLOWED_USERS`: Comma-separated Telegram User IDs allowed to use the bot in private messages (DMs).
 - `RATE_LIMIT_MAX_REQUESTS`: Max transcriptions allowed within the rolling window.
 - `RATE_LIMIT_WINDOW_SEC`: Rolling window duration in seconds.
 - `BOT_LANGUAGE`: Interface language (`ru` or `en`).
 - `MAX_AUDIO_DURATION_SEC`: Max allowed duration for voice messages.
+- `MAX_TELEGRAM_FILE_BYTES`: Max Telegram media file size to download/transcribe.
+- `MAX_CONCURRENT_TRANSCRIPTIONS`: Max simultaneous transcription jobs.
+- `TELEGRAM_DOWNLOAD_TIMEOUT_MS`: Timeout for downloading Telegram media.
+- `DEEPGRAM_TIMEOUT_MS`: Timeout for Deepgram API calls.
 - `DB_FILE`: Path to SQLite database file.
 - `DEBUG`: Turn on detailed debug logging.
 - `GEMINI_POLISH_ENABLED`: Set to `false` to completely disable Gemini polishing (default: `true`).
 - `GEMINI_POLISH_VIDEO`: Set to `false` to disable Gemini polishing specifically for video messages (default: `true`).
 - `GEMINI_API_KEY`: Your Google Gemini API key.
 - `GEMINI_MODEL`: Gemini model name (default: `gemini-3.1-flash-lite`).
+- `GEMINI_TIMEOUT_MS`: Timeout for Gemini polishing calls.
+- `GEMINI_MAX_OUTPUT_TOKENS`: Max Gemini output tokens for polished transcript.
 - `POLISH_MIN_DURATION_SEC`: Minimum audio duration in seconds to trigger polishing (default: `45`).
 
 ---

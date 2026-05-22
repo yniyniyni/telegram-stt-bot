@@ -139,10 +139,10 @@ bot.on('message', async (ctx, next) => {
     return;
   }
 
-  // 2. Enforce fail-closed chat authorization
-  if (!isChatAuthorized(chatId)) {
-    log("WARN", `Unauthorized chat access attempt. Chat ID: ${chatId}`);
-    // If it's a direct appeal or we want to inform the user, send unauthorized message
+  // 2. Enforce fail-closed authorization: private chats use user whitelist, groups use chat whitelist.
+  const senderId = msg.from?.id || 0;
+  if (isPrivate && !isUserAuthorized(senderId)) {
+    log("WARN", `Unauthorized user private chat access attempt. User ID: ${senderId}`);
     if (isDirectAppeal || isVoice || isVideoNote) {
       try {
         await ctx.replyWithHTML(locale.chatNotAuthorized, { reply_to_message_id: msg.message_id } as any);
@@ -153,10 +153,8 @@ bot.on('message', async (ctx, next) => {
     return;
   }
 
-  // 2b. Enforce fail-closed user authorization for private chats
-  const senderId = msg.from?.id || 0;
-  if (isPrivate && !isUserAuthorized(senderId)) {
-    log("WARN", `Unauthorized user private chat access attempt. User ID: ${senderId}`);
+  if (!isPrivate && !isChatAuthorized(chatId)) {
+    log("WARN", `Unauthorized chat access attempt. Chat ID: ${chatId}`);
     if (isDirectAppeal || isVoice || isVideoNote) {
       try {
         await ctx.replyWithHTML(locale.chatNotAuthorized, { reply_to_message_id: msg.message_id } as any);
@@ -420,7 +418,7 @@ async function sendTranscriptionResult(
   const fullHTML = header + sanitizeHTML(rawText);
 
   // Split into chunks if necessary (Telegram character limit is 4096)
-  const chunks = splitHTMLText(fullHTML, 4000);
+  const chunks = splitHTMLText(fullHTML, 4000, false);
 
   for (const chunk of chunks) {
     await ctx.replyWithHTML(chunk, { reply_to_message_id: msg.message_id } as any);

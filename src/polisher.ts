@@ -1,5 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
-import { getPositiveIntegerEnv, log, sanitizeHTML, withTimeout } from './utils.js';
+import { getPositiveIntegerEnv, log } from './utils.js';
 
 let aiInstance: GoogleGenAI | null = null;
 
@@ -53,22 +53,21 @@ export async function polishTranscript(rawText: string): Promise<string> {
     const aiClient = getAIClient();
     log("DEBUG", `Requesting transcript polishing via Gemini model '${model}'...`);
 
-    const response = await withTimeout(
-      aiClient.models.generateContent({
-        model: model,
-        contents: userPrompt,
-        config: {
-          systemInstruction,
-          temperature: 0.2,
-          maxOutputTokens
+    const response = await aiClient.models.generateContent({
+      model: model,
+      contents: userPrompt,
+      config: {
+        systemInstruction,
+        temperature: 0.2,
+        maxOutputTokens,
+        httpOptions: {
+          timeout: timeoutMs
         }
-      }),
-      timeoutMs,
-      'Gemini polishing'
-    );
+      }
+    });
 
     const resultText = response.text || rawText;
-    return sanitizeHTML(resultText);
+    return resultText;
   } catch (err: unknown) {
     const errMsg = err instanceof Error ? err.message : String(err);
     log("ERROR", `Failed to polish transcript using Gemini: ${errMsg}`);

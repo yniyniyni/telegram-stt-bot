@@ -86,7 +86,7 @@ ALLOW_ALL_CHATS=false
 ALLOWED_CHATS=-100123456789,987654321
 
 # Установите в 'true', чтобы разрешить любым пользователям писать боту в ЛС.
-ALLOW_ALL_USERS=true
+ALLOW_ALL_USERS=false
 ALLOWED_USERS=
 
 # Лимиты частоты запросов (на один чат)
@@ -104,6 +104,14 @@ BOT_LANGUAGE=ru
 # Ограничения безопасности
 # Максимальная длительность аудио/видео сообщения для обработки (в секундах).
 MAX_AUDIO_DURATION_SEC=600
+# Максимальный размер медиафайла Telegram для скачивания и распознавания (байты). По умолчанию: 50 МБ.
+MAX_TELEGRAM_FILE_BYTES=52428800
+# Максимальное количество одновременных задач распознавания.
+MAX_CONCURRENT_TRANSCRIPTIONS=2
+# Таймаут скачивания медиафайлов Telegram (миллисекунды).
+TELEGRAM_DOWNLOAD_TIMEOUT_MS=60000
+# Таймаут запросов к Deepgram API (миллисекунды).
+DEEPGRAM_TIMEOUT_MS=120000
 
 # Путь к базе данных (для продакшна рекомендуется указывать абсолютный путь)
 DB_FILE=/opt/telegram-stt-bot/data/db.sqlite
@@ -120,6 +128,10 @@ GEMINI_POLISH_VIDEO=true
 GEMINI_API_KEY=ваш_реальный_api_ключ_gemini
 # Используемая модель Gemini. По умолчанию: gemini-3.1-flash-lite
 GEMINI_MODEL=gemini-3.1-flash-lite
+# Таймаут запросов полишинга к Gemini (миллисекунды).
+GEMINI_TIMEOUT_MS=120000
+# Максимальное количество выходных токенов Gemini для полированного текста.
+GEMINI_MAX_OUTPUT_TOKENS=8192
 # Минимальная длительность сообщения в секундах для запуска улучшения текста.
 POLISH_MIN_DURATION_SEC=45
 ```

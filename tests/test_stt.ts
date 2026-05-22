@@ -26,6 +26,12 @@ async function runTests() {
   assert.ok(!sanitized.includes("<script>"));
   assert.ok(sanitized.includes("&lt;script&gt;"));
   assert.ok(sanitized.includes("<i>italic</i>"));
+
+  const sanitizedCode = sanitizeHTML("`<b>x</b>`");
+  assert.strictEqual(sanitizedCode, "<code>&lt;b&gt;x&lt;/b&gt;</code>");
+
+  const nestedCodeTags = sanitizeHTML("<code><b>x</b></code>");
+  assert.strictEqual(nestedCodeTags, "<code>&lt;b&gt;x&lt;/b&gt;</code>");
   console.log("   ✅ HTML Escaping and Sanitizing passed.");
 
   // --- Test 2: HTML Splitting ---
@@ -42,6 +48,9 @@ async function runTests() {
   assert.ok(chunks[1].endsWith("</b>"));
   assert.ok(chunks[chunks.length - 1].startsWith("<b>"));
   assert.ok(chunks[chunks.length - 1].endsWith("End</b>")); // Re-opened and closed properly
+
+  const safeHTML = "<b>Header</b>" + sanitizeHTML("A & B <x>");
+  assert.strictEqual(splitHTMLText(safeHTML, 4000, false)[0], "<b>Header</b>A &amp; B &lt;x&gt;");
   console.log(`   ✅ HTML text splitting passed. Split into ${chunks.length} chunks.`);
 
   // --- Test 3: Chat Authorization (Fail-Closed) ---

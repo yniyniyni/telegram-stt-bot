@@ -29,23 +29,6 @@ export function redactTelegramFileUrl(url: string): string {
   return url.replace(/\/bot[^/]+/g, '/bot<redacted>');
 }
 
-export async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
-  let timeout: NodeJS.Timeout | undefined;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeout = setTimeout(() => {
-      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-  });
-
-  try {
-    return await Promise.race([promise, timeoutPromise]);
-  } finally {
-    if (timeout) {
-      clearTimeout(timeout);
-    }
-  }
-}
-
 /**
  * Converts basic markdown formatting (headers, bold, italic, code blocks, inline code)
  * into Telegram-compatible HTML tags.
@@ -83,15 +66,25 @@ export function convertMarkdownToHTML(text: string): string {
   // 6. Restore inline code
   result = result.replace(/@@INLINE_CODE_PLACEHOLDER_(\d+)@@/g, (match, index) => {
     const code = inlineCodes[parseInt(index, 10)];
-    return `<code>${code}</code>`;
+    return `<code>${escapeHTML(code)}</code>`;
   });
 
   // 7. Restore code blocks
   result = result.replace(/@@CODE_BLOCK_PLACEHOLDER_(\d+)@@/g, (match, index) => {
     const code = codeBlocks[parseInt(index, 10)];
-    return `<pre>${code}</pre>`;
+    return `<pre>${escapeHTML(code)}</pre>`;
   });
 
+  return result;
+}
+
+function convertBasicMarkdownToHTML(text: string): string {
+  let result = text;
+  result = result.replace(/\*\*([^\s*](?:[^*]*?[^\s*])?)\*\*/g, '<b>$1</b>');
+  result = result.replace(/(?<![A-Za-z0-9_])__([^\s_](?:[^_]*?[^\s_])?)__(?![A-Za-z0-9_])/g, '<b>$1</b>');
+  result = result.replace(/(?<!\*)\*([^\s*](?:[^*]*?[^\s*])?)\*(?!\*)/g, '<i>$1</i>');
+  result = result.replace(/(?<![A-Za-z0-9_])_([^\s_](?:[^_]*?[^\s_])?)_(?![A-Za-z0-9_])/g, '<i>$1</i>');
+  result = result.replace(/^[ \t]*#+[ \t]+(.+)$/gm, '<b>$1</b>');
   return result;
 }
 
@@ -102,8 +95,20 @@ export function convertMarkdownToHTML(text: string): string {
 export function sanitizeHTML(input: string): string {
   if (!input) return "";
 
-  // Convert markdown to HTML before sanitization
-  const convertedInput = convertMarkdownToHTML(input);
+  const codeBlocks: string[] = [];
+  const inlineCodes: string[] = [];
+
+  let convertedInput = input.replace(/```([\s\S]*?)```/g, (_match, code) => {
+    codeBlocks.push(code);
+    return `@@CODE_BLOCK_PLACEHOLDER_${codeBlocks.length - 1}@@`;
+  });
+
+  convertedInput = convertedInput.replace(/`([^`\n]+)`/g, (_match, code) => {
+    inlineCodes.push(code);
+    return `@@INLINE_CODE_PLACEHOLDER_${inlineCodes.length - 1}@@`;
+  });
+
+  convertedInput = convertBasicMarkdownToHTML(convertedInput);
 
   // Split string by HTML tags: </?[tagName] ...>
   const parts = convertedInput.split(/(<\/?[a-zA-Z0-9]+(?:\s+[^>]*)?>)/g);
@@ -112,6 +117,30 @@ export function sanitizeHTML(input: string): string {
   const allowedTags = new Set(['b', 'i', 'code', 'pre', '/b', '/i', '/code', '/pre']);
 
   const openTags: string[] = [];
+  const codePlaceholderPattern = /@@(INLINE_CODE|CODE_BLOCK)_PLACEHOLDER_(\d+)@@/g;
+
+  const escapeTextWithCodePlaceholders = (text: string): string => {
+    let result = "";
+    let lastIndex = 0;
+
+    for (const match of text.matchAll(codePlaceholderPattern)) {
+      result += escapeHTML(text.slice(lastIndex, match.index));
+      const kind = match[1];
+      const index = parseInt(match[2], 10);
+      const code = kind === 'INLINE_CODE' ? inlineCodes[index] : codeBlocks[index];
+      if (code === undefined) {
+        result += escapeHTML(match[0]);
+      } else if (kind === 'INLINE_CODE') {
+        result += `<code>${escapeHTML(code)}</code>`;
+      } else {
+        result += `<pre>${escapeHTML(code)}</pre>`;
+      }
+      lastIndex = (match.index || 0) + match[0].length;
+    }
+
+    result += escapeHTML(text.slice(lastIndex));
+    return result;
+  };
 
   const mapped = parts.map((part, index) => {
     // Odd indices correspond to matched tag tokens
@@ -123,6 +152,10 @@ export function sanitizeHTML(input: string): string {
         
         if (allowedTags.has(fullTagName)) {
           const isClose = part.startsWith('</');
+          const isInsideCode = openTags.includes('code') || openTags.includes('pre');
+          if (isInsideCode && tagName !== 'code' && tagName !== 'pre') {
+            return escapeHTML(part);
+          }
           if (isClose) {
             const lastIdx = openTags.lastIndexOf(tagName);
             if (lastIdx !== -1) {
@@ -143,7 +176,7 @@ export function sanitizeHTML(input: string): string {
       return escapeHTML(part);
     } else {
       // Plain text token
-      return escapeHTML(part);
+      return escapeTextWithCodePlaceholders(part);
     }
   }).join('');
 
@@ -397,8 +430,10 @@ function truncateHTMLToLength(html: string, maxLen: number): string {
  * are not cut in half, and that any tags open at the end of a chunk are closed
  * and then reopened at the start of the next chunk.
  */
-export function splitHTMLText(text: string, maxLength = 4000): string[] {
-  text = sanitizeHTML(text);
+export function splitHTMLText(text: string, maxLength = 4000, shouldSanitize = true): string[] {
+  if (shouldSanitize) {
+    text = sanitizeHTML(text);
+  }
   if (!text) return [];
   if (text.length <= maxLength) return [text];
 
