@@ -1,0 +1,197 @@
+# Linux Deployment Guide
+
+This guide provides step-by-step instructions for deploying the Telegram Speech-to-Text Bot on Linux servers: **Debian/Ubuntu** (APT-based) and **AlmaLinux/Rocky Linux** (YUM/DNF-based).
+
+---
+
+## 📋 Prerequisites
+
+### 1. Install Node.js (v20.17.0+)
+
+We recommend installing Node.js v20 LTS.
+
+#### Debian / Ubuntu:
+```bash
+# Install NodeSource repository
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+```
+
+#### AlmaLinux / Rocky Linux:
+```bash
+# Enable Node.js module stream (version 20)
+sudo dnf module enable -y nodejs:20
+sudo dnf install -y nodejs
+```
+
+### 2. Install SQLite & Build Essentials
+Since the bot utilizes SQLite (`sqlite3` npm package which compiles native C++ bindings during installation), build tools and SQLite development libraries are required.
+
+#### Debian / Ubuntu:
+```bash
+sudo apt-get update
+sudo apt-get install -y sqlite3 build-essential
+```
+
+#### AlmaLinux / Rocky Linux:
+```bash
+sudo dnf groupinstall -y "Development Tools"
+sudo dnf install -y sqlite sqlite-devel
+```
+
+---
+
+## 🚀 Installation & Build
+
+### 1. Clone the Repository & Install Dependencies
+Clone the repository to a preferred deployment folder (e.g., `/opt/telegram-stt-bot`):
+
+```bash
+sudo git clone https://github.com/yniyniyni/telegram-stt-bot /opt/telegram-stt-bot
+cd /opt/telegram-stt-bot
+
+# Change folder ownership to your current non-root user
+sudo chown -R $USER:$USER /opt/telegram-stt-bot
+
+# Install packages
+npm install
+```
+
+### 2. Configure Environment Variables
+Create the production `.env` file from the example:
+```bash
+cp .env.example .env
+nano .env
+```
+Fill in the configuration details:
+```ini
+# Telegram Bot Token from @BotFather
+TELEGRAM_BOT_TOKEN=your_real_telegram_bot_token
+
+# Deepgram API Key (from console.deepgram.com)
+DEEPGRAM_API_KEY=your_real_deepgram_api_key
+
+# Deepgram transcription model (e.g. nova-2, nova-2-meeting, etc. Default: nova-2)
+DEEPGRAM_MODEL=nova-2
+
+# Smart Format improves readability by applying additional formatting.
+DEEPGRAM_SMART_FORMAT=true
+
+# Access Control
+# Set to 'true' to allow any chat/user. Set to 'false' to enforce ALLOWED_CHATS whitelist.
+ALLOW_ALL_CHATS=false
+# Comma-separated list of Telegram Chat IDs allowed to use the bot
+ALLOWED_CHATS=-100123456789,987654321
+
+# Set to 'true' to allow any user to message the bot in private messages (DMs).
+ALLOW_ALL_USERS=true
+ALLOWED_USERS=
+
+# Rate Limiting (per chat)
+# Maximum number of transcription requests in the rolling window
+RATE_LIMIT_MAX_REQUESTS=10
+# Rolling window in seconds (e.g. 3600 = 1 hour)
+RATE_LIMIT_WINDOW_SEC=3600
+
+# Language settings (default: auto)
+DEEPGRAM_LANGUAGE=auto
+
+# Bot Interface Language (for user replies/errors): 'ru' or 'en'
+BOT_LANGUAGE=ru
+
+# Safety limits
+# Max voice/video-note duration to process (in seconds). Prevents abuse/cost spikes.
+MAX_AUDIO_DURATION_SEC=600
+
+# Database path (absolute path recommended for production)
+DB_FILE=/opt/telegram-stt-bot/data/db.sqlite
+
+# Logging
+DEBUG=false
+
+# Gemini API Integration (For polishing transcripts > 45s)
+# Set to 'false' to disable Gemini polishing functionality completely.
+GEMINI_POLISH_ENABLED=true
+# Set to 'false' to disable Gemini polishing specifically for video messages (video notes).
+GEMINI_POLISH_VIDEO=true
+# Gemini API Key (from Google AI Studio).
+GEMINI_API_KEY=your_real_gemini_api_key
+# Gemini model to use. Default: gemini-3.1-flash-lite
+GEMINI_MODEL=gemini-3.1-flash-lite
+# Minimum voice/video duration in seconds to trigger polishing. Default: 45
+POLISH_MIN_DURATION_SEC=45
+```
+
+### 3. Build the Application
+Compile TypeScript sources to JavaScript:
+```bash
+npm run build
+```
+
+Verify that the compiled JavaScript files are present in the `dist` folder:
+```bash
+ls dist/
+```
+
+---
+
+## ⚙️ Running as a System Service (systemd)
+
+For production environments, running the bot as a `systemd` service ensures that it runs in the background, logs output to the system journal, and automatically restarts if it crashes or the server reboots.
+
+### 1. Create a systemd Service File
+
+Create a service file `/etc/systemd/system/telegram-stt-bot.service`:
+```bash
+sudo nano /etc/systemd/system/telegram-stt-bot.service
+```
+
+Paste the following configuration (replace `youruser` with the name of the system user running the bot, e.g., your own username or a dedicated `telegram-bot` service user):
+
+```ini
+[Unit]
+Description=Telegram Speech-to-Text Bot
+After=network.target
+
+[Service]
+Type=simple
+User=youruser
+WorkingDirectory=/opt/telegram-stt-bot
+ExecStart=/usr/bin/node dist/main.js
+Restart=always
+RestartSec=10
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
+```
+
+> [!NOTE]
+> If you don't know your user or node path, you can run `whoami` and `which node` to verify.
+
+### 2. Enable and Start the Service
+
+```bash
+# Reload systemd manager configuration
+sudo systemctl daemon-reload
+
+# Start the bot service
+sudo systemctl start telegram-stt-bot
+
+# Enable the service to start automatically on system boot
+sudo systemctl enable telegram-stt-bot
+```
+
+### 3. Monitoring & Logs
+
+You can check the current status of the service using:
+```bash
+sudo systemctl status telegram-stt-bot
+```
+
+To view real-time log outputs generated by the bot:
+```bash
+sudo journalctl -u telegram-stt-bot -f -o cat
+```
+
+If you configured `DEBUG=true` in `.env`, debug messages will also be visible here.

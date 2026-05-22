@@ -24,7 +24,7 @@
 ## Технологический стек
 
 - **Язык**: TypeScript
-- **Среда выполнения**: Node.js (v18+)
+- **Среда выполнения**: Node.js (v20.17.0+)
 - **Фреймворк**: Telegraf (обертка Telegram Bot API)
 - **База данных**: SQLite (библиотеки `sqlite` и `sqlite3`)
 - **STT движок**: Deepgram REST API (модель Nova-2)
@@ -32,11 +32,17 @@
 
 ---
 
+## Деплоймент (Развертывание)
+
+Для деплоя на продакшн-серверы под управлением Linux (Debian, Ubuntu, AlmaLinux, Rocky Linux) с настройкой службы systemd обратитесь к [Руководству по деплою на Linux](deployment_ru.md) (также доступна [версия на английском языке](deployment.md)).
+
+---
+
 ## Быстрый старт
 
 ### Требования
 
-- Установленный Node.js (v18 или выше)
+- Установленный Node.js (v20.17.0 или выше)
 - Токен Telegram бота (можно получить у [@BotFather](https://t.me/BotFather))
 - API Ключ Deepgram (можно получить в [console.deepgram.com](https://console.deepgram.com/))
 - API Ключ Google Gemini (можно получить в [Google AI Studio](https://aistudio.google.com/)) (Опционально: только если включена полировка сообщений)

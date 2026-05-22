@@ -24,7 +24,7 @@ It automatically transcribes voice messages and video notes (circles) in authori
 ## Technical Stack
 
 - **Language**: TypeScript
-- **Runtime**: Node.js (v18+)
+- **Runtime**: Node.js (v20.17.0+)
 - **Framework**: Telegraf (Telegram Bot API wrapper)
 - **Database**: SQLite (via `sqlite` and `sqlite3` packages)
 - **STT Engine**: Deepgram REST API (Nova-2 model)
@@ -32,11 +32,17 @@ It automatically transcribes voice messages and video notes (circles) in authori
 
 ---
 
+## Deployment
+
+For production deployments on Linux servers (Debian, Ubuntu, AlmaLinux, Rocky Linux) running as a system service (systemd), please refer to the [Linux Deployment Guide](docs/deployment.md) (also available in [Russian version](docs/deployment_ru.md)).
+
+---
+
 ## Getting Started
 
 ### Prerequisites
 
-- Node.js (v18 or higher)
+- Node.js (v20.17.0 or higher)
 - A Telegram Bot Token (obtained from [@BotFather](https://t.me/BotFather))
 - A Deepgram API Key (obtained from [console.deepgram.com](https://console.deepgram.com/))
 - A Google Gemini API Key (obtained from [Google AI Studio](https://aistudio.google.com/)) (Optional: Only if transcription polishing is enabled)
