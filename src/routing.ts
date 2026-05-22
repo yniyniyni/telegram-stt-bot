@@ -28,6 +28,15 @@ export type MessageRoutingDecision =
       fullName: string;
     };
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function textMentionsBot(text: string, botUsername: string): boolean {
+  const mentionPattern = new RegExp(`(^|[^A-Za-z0-9_])@${escapeRegExp(botUsername)}(?![A-Za-z0-9_])`, 'i');
+  return mentionPattern.test(text);
+}
+
 export function determineMessageRouting(msg: any, options: RoutingOptions): MessageRoutingDecision {
   const isVoice = 'voice' in msg;
   const isVideoNote = 'video_note' in msg;
@@ -37,7 +46,7 @@ export function determineMessageRouting(msg: any, options: RoutingOptions): Mess
     isDirectAppeal = true;
   } else if ('text' in msg) {
     const text = msg.text || '';
-    const hasMention = text.includes(`@${options.botUsername}`);
+    const hasMention = textMentionsBot(text, options.botUsername);
     const isReplyToBot = msg.reply_to_message?.from?.id === options.botId;
     if (hasMention || isReplyToBot) {
       isDirectAppeal = true;

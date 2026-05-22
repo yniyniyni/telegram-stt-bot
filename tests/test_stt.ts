@@ -320,7 +320,20 @@ async function runTests() {
   const res3 = determineTargetMessage({ text: `@${botUsername} /help` }, false);
   assert.strictEqual(res3.action, 'command');
 
-  // Scenario 4: Mention in group in reply to a voice message -> should transcribe replied voice
+  // Scenario 4: Mention matching is exact and case-insensitive
+  const resMentionSuffix = determineTargetMessage({
+    text: `@${botUsername}_backup transcribe this`,
+    reply_to_message: {
+      voice: { file_id: "v_suffix", file_unique_id: "vu_suffix", duration: 25 },
+      from: { id: 888 }
+    }
+  }, false);
+  assert.strictEqual(resMentionSuffix.action, 'ignore');
+
+  const resMentionUpper = determineTargetMessage({ text: `@${botUsername.toUpperCase()} /help` }, false);
+  assert.strictEqual(resMentionUpper.action, 'command');
+
+  // Scenario 5: Mention in group in reply to a voice message -> should transcribe replied voice
   const res4 = determineTargetMessage({
     text: `@${botUsername} transcribe this`,
     reply_to_message: {
@@ -337,7 +350,7 @@ async function runTests() {
     userId: 888
   });
 
-  // Scenario 5: Reply to another user's video note without mention -> should ignore
+  // Scenario 6: Reply to another user's video note without mention -> should ignore
   const res5 = determineTargetMessage({
     text: "please transcribe",
     reply_to_message: {
@@ -347,7 +360,7 @@ async function runTests() {
   }, false);
   assert.strictEqual(res5.action, 'ignore');
 
-  // Scenario 6: Text reply to a bot-authored video note -> should transcribe replied video note
+  // Scenario 7: Text reply to a bot-authored video note -> should transcribe replied video note
   const res6 = determineTargetMessage({
     text: "do it",
     reply_to_message: {
