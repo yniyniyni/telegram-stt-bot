@@ -79,7 +79,7 @@ const polishingLimiter = new TranscriptionLimiter(MAX_CONCURRENT_TRANSCRIPTIONS)
  * Main message handler middleware.
  * Implements strict filtering: ignores all messages except voice, video note, and direct appeals.
  */
-bot.on('message', async (ctx, next) => {
+bot.on('message', async (ctx) => {
   const msg = ctx.message;
   const anyMsg = msg as any;
   const locale = getLocale();
@@ -328,6 +328,9 @@ bot.on('message', async (ctx, next) => {
 
     // Handle polishing if qualifies
     if (qualifiesForPolishing) {
+      if (!polishingLimiter.tryAcquire()) {
+        log("WARN", `Polishing concurrency limit hit for file ${fileUniqueId}. Sending raw transcript.`);
+      } else {
       // 1. Delete transcribing message first
       if (statusMsgId !== null) {
         try {
@@ -352,6 +355,7 @@ bot.on('message', async (ctx, next) => {
       } catch (err) {
         log("ERROR", `Polishing step failed: ${safeErrorForLog(err)}`);
       } finally {
+        polishingLimiter.release();
         if (polishStatusMsg !== null) {
           try {
             await ctx.telegram.deleteMessage(chatId, polishStatusMsg.message_id);
@@ -359,6 +363,7 @@ bot.on('message', async (ctx, next) => {
             log("WARN", `Failed to delete polishing status: ${safeErrorForLog(delErr)}`);
           }
         }
+      }
       }
     }
 
